@@ -1,4 +1,4 @@
-// Copyright (C) [2026/10/19] kotaro,termin
+// Copyright (C) [2026/10/28] kotaro kawamura
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
