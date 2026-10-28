@@ -1,0 +1,196 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: fwer 0.0.3\n"
+"POT-Creation-Date: 2026-10-28 19:00+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Copy"
+msgstr ""
+
+msgid "Paste"
+msgstr ""
+
+msgid "Split Pane"
+msgstr ""
+
+msgid "Split Horizontally"
+msgstr ""
+
+msgid "Split Vertically"
+msgstr ""
+
+msgid "New Tab"
+msgstr ""
+
+msgid "Clear Scrollback"
+msgstr ""
+
+msgid "Open Settings"
+msgstr ""
+
+msgid "Close Pane"
+msgstr ""
+
+msgid "Layout"
+msgstr ""
+
+msgid "Save Current Layout"
+msgstr ""
+
+msgid "Load Saved Layout"
+msgstr ""
+
+msgid "Toggle Fullscreen"
+msgstr ""
+
+msgid "Termin Preferences"
+msgstr ""
+
+msgid "Titlebar & Frame"
+msgstr ""
+
+msgid "Font"
+msgstr ""
+
+msgid "Shortcuts"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Restore Defaults"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Active Titlebar Background"
+msgstr ""
+
+msgid "Active Titlebar Text"
+msgstr ""
+
+msgid "Inactive Titlebar Background"
+msgstr ""
+
+msgid "Inactive Titlebar Text"
+msgstr ""
+
+msgid "Window Frame Background"
+msgstr ""
+
+msgid "Window Frame Border"
+msgstr ""
+
+msgid "Pane Separator Color"
+msgstr ""
+
+msgid "Terminal Background Color"
+msgstr ""
+
+msgid "Terminal Background Opacity"
+msgstr ""
+
+msgid "Pane Separator Width (px)"
+msgstr ""
+
+msgid "Window Border Width (px)"
+msgstr ""
+
+msgid "Target FPS"
+msgstr ""
+
+msgid "Show Scrollbar"
+msgstr ""
+
+msgid "Default"
+msgstr ""
+
+msgid "Applied"
+msgstr ""
+
+msgid "Using Default"
+msgstr ""
+
+msgid "Invalid Color (Fallback to Default)"
+msgstr ""
+
+msgid "Font Filter Keyword"
+msgstr ""
+
+msgid "Rescan"
+msgstr ""
+
+msgid "System Font"
+msgstr ""
+
+msgid "Font File Path"
+msgstr ""
+
+msgid "UI / Menu Font Size (px)"
+msgstr ""
+
+msgid "Terminal Font Size (px)"
+msgstr ""
+
+msgid "Open Font Sample Catalog..."
+msgstr ""
+
+msgid "Font Preview"
+msgstr ""
+
+msgid "System Font Samples & Selector"
+msgstr ""
+
+msgid "All Fonts"
+msgstr ""
+
+msgid "Monospace"
+msgstr ""
+
+msgid "Japanese / CJK"
+msgstr ""
+
+msgid "Sample Text"
+msgstr ""
+
+msgid "Use This Font"
+msgstr ""
+
+msgid "Record"
+msgstr ""
+
+msgid "+ Add"
+msgstr ""
+
+msgid "Press shortcut keys... (Esc to cancel)"
+msgstr ""
+
+msgid "Reset Shortcuts to Defaults"
+msgstr ""
+
+msgid "Display Language"
+msgstr ""
+
+msgid "Auto (System Locale)"
+msgstr ""
+
+msgid "English (en.po)"
+msgstr ""
+
+msgid "日本語 (ja.po)"
+msgstr ""
+
+msgid "Custom .po File Path"
+msgstr ""
+
+msgid "Reload .po Files"
+msgstr ""
+
+msgid "Active Locale"
+msgstr ""
+
+msgid "Loaded Translation Entries"
+msgstr ""

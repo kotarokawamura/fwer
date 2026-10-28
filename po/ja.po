@@ -1,0 +1,222 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: fwer 0.0.3\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Copy"
+msgstr "コピー"
+
+msgid "Paste"
+msgstr "貼り付け"
+
+msgid "Split Pane"
+msgstr "ペイン分割"
+
+msgid "Split Horizontally"
+msgstr "水平分割 (左右)"
+
+msgid "Split Vertically"
+msgstr "垂直分割 (上下)"
+
+msgid "New Tab"
+msgstr "新規タブ"
+
+msgid "Clear Scrollback"
+msgstr "スクロールバック消去"
+
+msgid "Open Settings"
+msgstr "環境設定を開く"
+
+msgid "Close Pane"
+msgstr "ペインを閉じる"
+
+msgid "Layout"
+msgstr "レイアウト"
+
+msgid "Save Current Layout"
+msgstr "現在のレイアウトを保存"
+
+msgid "Load Saved Layout"
+msgstr "保存済みレイアウトを読込"
+
+msgid "Toggle Fullscreen"
+msgstr "最大化 / フルスクリーン切替"
+
+msgid "Termin Preferences"
+msgstr "Termin 環境設定"
+
+msgid "Titlebar & Frame"
+msgstr "タイトルバーと枠"
+
+msgid "Font"
+msgstr "フォント"
+
+msgid "Shortcuts"
+msgstr "ショートカット"
+
+msgid "Language"
+msgstr "言語 (Language)"
+
+msgid "Restore Defaults"
+msgstr "デフォルトに戻す"
+
+msgid "Close"
+msgstr "閉じる"
+
+msgid "Active Titlebar Background"
+msgstr "アクティブタイトルバー背景色"
+
+msgid "Active Titlebar Text"
+msgstr "アクティブタイトルバー文字色"
+
+msgid "Inactive Titlebar Background"
+msgstr "非アクティブタイトルバー背景色"
+
+msgid "Inactive Titlebar Text"
+msgstr "非アクティブタイトルバー文字色"
+
+msgid "Window Frame Background"
+msgstr "ウィンドウフレーム背景色"
+
+msgid "Window Frame Border"
+msgstr "ウィンドウフレーム枠線色"
+
+msgid "Pane Separator Color"
+msgstr "ペイン境界線色"
+
+msgid "Pane Separator Border Color"
+msgstr "ペイン境界線の枠線色"
+
+msgid "Disabled (--fps not specified)"
+msgstr "無効 (--fps 引数未指定)"
+
+msgid "Browse installed system fonts with live text samples and click 'Use This Font' to apply."
+msgstr "インストール済みフォントのサンプルを比較し、「このフォントを使用」をクリックして適用できます。"
+
+msgid "Category:"
+msgstr "カテゴリ:"
+
+msgid "Matching Fonts"
+msgstr "一致したフォント"
+
+msgid "Selected"
+msgstr "選択中"
+
+msgid "Current Font"
+msgstr "現在のフォント"
+
+msgid "Terminal Background Color"
+msgstr "ターミナル背景色"
+
+msgid "Terminal Background Opacity"
+msgstr "ターミナル背景の不透明度"
+
+msgid "Pane Separator Width (px)"
+msgstr "ペイン境界線の太さ (px)"
+
+msgid "Window Border Width (px)"
+msgstr "ウィンドウ外周枠の太さ (px)"
+
+msgid "Target FPS"
+msgstr "ターゲット FPS"
+
+msgid "Show Scrollbar"
+msgstr "スクロールバーを表示する"
+
+msgid "Default"
+msgstr "既定値"
+
+msgid "Applied"
+msgstr "適用中"
+
+msgid "Using Default"
+msgstr "デフォルト使用中"
+
+msgid "Invalid Color (Fallback to Default)"
+msgstr "無効な色指定 (デフォルト適用)"
+
+msgid "Font Filter Keyword"
+msgstr "フォント検索キーワード"
+
+msgid "Rescan"
+msgstr "再スキャン"
+
+msgid "System Font"
+msgstr "システムフォント選択"
+
+msgid "Font File Path"
+msgstr "フォントファイルパス"
+
+msgid "UI / Menu Font Size (px)"
+msgstr "UI・メニュー文字サイズ (px)"
+
+msgid "Terminal Font Size (px)"
+msgstr "ターミナル文字サイズ (px)"
+
+msgid "Open Font Sample Catalog..."
+msgstr "フォントサンプル一覧を開く..."
+
+msgid "Font Preview"
+msgstr "フォントプレビュー"
+
+msgid "System Font Samples & Selector"
+msgstr "システムフォントサンプル＆セレクタ"
+
+msgid "All Fonts"
+msgstr "すべてのフォント"
+
+msgid "Monospace"
+msgstr "等幅 (Monospace)"
+
+msgid "Japanese / CJK"
+msgstr "日本語 / CJK"
+
+msgid "Sample Text"
+msgstr "サンプル文字列"
+
+msgid "Use This Font"
+msgstr "このフォントを使用"
+
+msgid "Record"
+msgstr "記録"
+
+msgid "+ Add"
+msgstr "+ 追加"
+
+msgid "Press shortcut keys... (Esc to cancel)"
+msgstr "キーを入力してください... (Escでキャンセル)"
+
+msgid "Reset Shortcuts to Defaults"
+msgstr "ショートカットを初期値に戻す"
+
+msgid "Display Language"
+msgstr "表示言語"
+
+msgid "Auto (System Locale)"
+msgstr "自動 (システムロケール)"
+
+msgid "English (en.po)"
+msgstr "English (en.po)"
+
+msgid "日本語 (ja.po)"
+msgstr "日本語 (ja.po)"
+
+msgid "Custom .po File Path"
+msgstr "カスタム .po ファイルパス"
+
+msgid "Reload .po Files"
+msgstr ".po ファイルを再読み込み"
+
+msgid "Active Locale"
+msgstr "現在のロケール"
+
+msgid "Loaded Translation Entries"
+msgstr "読み込み済み翻訳エントリ数"
+
+msgid "%d pane"
+msgid_plural "%d panes"
+msgstr[0] "%d ペイン"

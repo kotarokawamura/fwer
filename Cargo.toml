@@ -1,0 +1,18 @@
+[package]
+name = "fwer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# GUIコア (Debian: librust-gtk4-dev)
+# Wayland/X11の両対応、ピンチズーム(GestureZoom)、ショートカット、フレームレス窓などを標準提供
+gtk4 = { version = "0.11.5", features = ["v4_12"] }
+
+# ターミナルウィジェット (Debian: librust-vte4-dev)
+# PTY生成、VT100パース、スクロールバック、リサイズ時の自動リフロー、文字描画をすべて内包
+vte4 = { version = "0.10.0", features = ["v0_74"] }
+
+# 設定ファイル・レイアウト保存用 (Debian: librust-serde-dev, librust-serde-json-dev)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+libc = "0.2"

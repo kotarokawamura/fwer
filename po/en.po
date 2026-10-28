@@ -1,0 +1,223 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: fwer 0.0.3\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Copy"
+msgstr "Copy"
+
+msgid "Paste"
+msgstr "Paste"
+
+msgid "Split Pane"
+msgstr "Split Pane"
+
+msgid "Split Horizontally"
+msgstr "Split Horizontally"
+
+msgid "Split Vertically"
+msgstr "Split Vertically"
+
+msgid "New Tab"
+msgstr "New Tab"
+
+msgid "Clear Scrollback"
+msgstr "Clear Scrollback"
+
+msgid "Open Settings"
+msgstr "Open Settings"
+
+msgid "Close Pane"
+msgstr "Close Pane"
+
+msgid "Layout"
+msgstr "Layout"
+
+msgid "Save Current Layout"
+msgstr "Save Current Layout"
+
+msgid "Load Saved Layout"
+msgstr "Load Saved Layout"
+
+msgid "Toggle Fullscreen"
+msgstr "Toggle Fullscreen"
+
+msgid "Termin Preferences"
+msgstr "Termin Preferences"
+
+msgid "Titlebar & Frame"
+msgstr "Titlebar & Frame"
+
+msgid "Font"
+msgstr "Font"
+
+msgid "Shortcuts"
+msgstr "Shortcuts"
+
+msgid "Language"
+msgstr "Language"
+
+msgid "Restore Defaults"
+msgstr "Restore Defaults"
+
+msgid "Close"
+msgstr "Close"
+
+msgid "Active Titlebar Background"
+msgstr "Active Titlebar Background"
+
+msgid "Active Titlebar Text"
+msgstr "Active Titlebar Text"
+
+msgid "Inactive Titlebar Background"
+msgstr "Inactive Titlebar Background"
+
+msgid "Inactive Titlebar Text"
+msgstr "Inactive Titlebar Text"
+
+msgid "Window Frame Background"
+msgstr "Window Frame Background"
+
+msgid "Window Frame Border"
+msgstr "Window Frame Border"
+
+msgid "Pane Separator Color"
+msgstr "Pane Separator Color"
+
+msgid "Pane Separator Border Color"
+msgstr "Pane Separator Border Color"
+
+msgid "Disabled (--fps not specified)"
+msgstr "Disabled (--fps not specified)"
+
+msgid "Browse installed system fonts with live text samples and click 'Use This Font' to apply."
+msgstr "Browse installed system fonts with live text samples and click 'Use This Font' to apply."
+
+msgid "Category:"
+msgstr "Category:"
+
+msgid "Matching Fonts"
+msgstr "Matching Fonts"
+
+msgid "Selected"
+msgstr "Selected"
+
+msgid "Current Font"
+msgstr "Current Font"
+
+msgid "Terminal Background Color"
+msgstr "Terminal Background Color"
+
+msgid "Terminal Background Opacity"
+msgstr "Terminal Background Opacity"
+
+msgid "Pane Separator Width (px)"
+msgstr "Pane Separator Width (px)"
+
+msgid "Window Border Width (px)"
+msgstr "Window Border Width (px)"
+
+msgid "Target FPS"
+msgstr "Target FPS"
+
+msgid "Show Scrollbar"
+msgstr "Show Scrollbar"
+
+msgid "Default"
+msgstr "Default"
+
+msgid "Applied"
+msgstr "Applied"
+
+msgid "Using Default"
+msgstr "Using Default"
+
+msgid "Invalid Color (Fallback to Default)"
+msgstr "Invalid Color (Fallback to Default)"
+
+msgid "Font Filter Keyword"
+msgstr "Font Filter Keyword"
+
+msgid "Rescan"
+msgstr "Rescan"
+
+msgid "System Font"
+msgstr "System Font"
+
+msgid "Font File Path"
+msgstr "Font File Path"
+
+msgid "UI / Menu Font Size (px)"
+msgstr "UI / Menu Font Size (px)"
+
+msgid "Terminal Font Size (px)"
+msgstr "Terminal Font Size (px)"
+
+msgid "Open Font Sample Catalog..."
+msgstr "Open Font Sample Catalog..."
+
+msgid "Font Preview"
+msgstr "Font Preview"
+
+msgid "System Font Samples & Selector"
+msgstr "System Font Samples & Selector"
+
+msgid "All Fonts"
+msgstr "All Fonts"
+
+msgid "Monospace"
+msgstr "Monospace"
+
+msgid "Japanese / CJK"
+msgstr "Japanese / CJK"
+
+msgid "Sample Text"
+msgstr "Sample Text"
+
+msgid "Use This Font"
+msgstr "Use This Font"
+
+msgid "Record"
+msgstr "Record"
+
+msgid "+ Add"
+msgstr "+ Add"
+
+msgid "Press shortcut keys... (Esc to cancel)"
+msgstr "Press shortcut keys... (Esc to cancel)"
+
+msgid "Reset Shortcuts to Defaults"
+msgstr "Reset Shortcuts to Defaults"
+
+msgid "Display Language"
+msgstr "Display Language"
+
+msgid "Auto (System Locale)"
+msgstr "Auto (System Locale)"
+
+msgid "English (en.po)"
+msgstr "English (en.po)"
+
+msgid "日本語 (ja.po)"
+msgstr "日本語 (ja.po)"
+
+msgid "Custom .po File Path"
+msgstr "Custom .po File Path"
+
+msgid "Reload .po Files"
+msgstr "Reload .po Files"
+
+msgid "Active Locale"
+msgstr "Active Locale"
+
+msgid "Loaded Translation Entries"
+msgstr "Loaded Translation Entries"
+
+msgid "%d pane"
+msgid_plural "%d panes"
+msgstr[0] "%d pane"
+msgstr[1] "%d panes"
