@@ -569,20 +569,37 @@ impl PreferencesWindow {
         }
 
         {
-            let entry_clone = entry.clone();
-            let upd = Rc::clone(&updating);
-            color_btn.connect_rgba_notify(move |btn| {
-                if upd.get() {
-                    return;
-                }
-                let rgba = btn.rgba();
-                let r = (rgba.red() * 255.0).round().clamp(0.0, 255.0) as u8;
-                let g = (rgba.green() * 255.0).round().clamp(0.0, 255.0) as u8;
-                let b = (rgba.blue() * 255.0).round().clamp(0.0, 255.0) as u8;
-                let hex = format_rgb_hex(RgbColor(r, g, b));
-                entry_clone.set_text(&hex);
-            });
-        }
+            {
+                let entry_clone = entry.clone();
+                let status_clone = status_lbl.clone();
+                let upd = Rc::clone(&updating);
+                let p_weak = Rc::downgrade(self);
+                let setter_clone = Rc::clone(&setter);
+
+                color_btn.connect_rgba_notify(move |btn| {
+                    if upd.get() {
+                        return;
+                    }
+                    let rgba = btn.rgba();
+                    let r = (rgba.red() * 255.0).round().clamp(0.0, 255.0) as u8;
+                    let g = (rgba.green() * 255.0).round().clamp(0.0, 255.0) as u8;
+                    let b = (rgba.blue() * 255.0).round().clamp(0.0, 255.0) as u8;
+                    let hex = format_rgb_hex(RgbColor(r, g, b));
+
+                    //Prevent infinite loop
+                    upd.set(true);
+                    entry_clone.set_text(&hex);
+                    upd.set(false);
+
+                    status_clone.set_text(&color_status_text(&hex));
+
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = p.workspace.settings();
+                        setter_clone(&mut st, hex);
+                        p.notify_changed(st);
+                    }
+                });
+            }        }
 
         {
             let entry_clone = entry.clone();
