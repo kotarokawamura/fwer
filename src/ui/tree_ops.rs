@@ -34,6 +34,7 @@ pub struct WorkspaceTree {
     pub root: Option<TreeNode>,
     pub panes: HashMap<TileId, PaneMeta>,
     pub active_pane: Option<TileId>,
+    pub split_ratios: HashMap<(bool, TileId), f64>,
 }
 
 impl Default for WorkspaceTree {
@@ -49,6 +50,19 @@ impl WorkspaceTree {
             root: None,
             panes: HashMap::new(),
             active_pane: None,
+            split_ratios: HashMap::new(),
+        }
+    }
+
+    pub fn split_ratio(&self, horizontal: bool, start_first_pane: Option<TileId>, default_ratio: f64) -> f64 {
+        start_first_pane
+            .and_then(|id| self.split_ratios.get(&(horizontal, id)).copied())
+            .unwrap_or(default_ratio)
+    }
+
+    pub fn set_split_ratio(&mut self, horizontal: bool, start_first_pane: Option<TileId>, ratio: f64) {
+        if let Some(id) = start_first_pane {
+            self.split_ratios.insert((horizontal, id), ratio.clamp(0.05, 0.95));
         }
     }
 
@@ -107,6 +121,9 @@ impl WorkspaceTree {
         if !self.panes.contains_key(&target) {
             return None;
         }
+        if let Some(old_r) = self.split_ratios.get(&(horizontal, target)).copied() {
+            self.split_ratios.insert((horizontal, target), (old_r * 0.5).clamp(0.05, 0.95));
+        }
         let new_id = self.allocate_pane(title, command);
         if let Some(ref mut root) = self.root {
             replace_with_split(root, target, new_id, horizontal);
@@ -139,6 +156,7 @@ impl WorkspaceTree {
         let target_pos = ordered_before.iter().position(|&id| id == target);
 
         self.panes.remove(&target);
+        self.split_ratios.retain(|&(_, id), _| id != target);
         if let Some(root) = self.root.take() {
             self.root = remove_pane_from_node(root, target);
         }

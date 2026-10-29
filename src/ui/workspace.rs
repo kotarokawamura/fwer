@@ -809,7 +809,14 @@ impl Workspace {
         paned.set_start_child(Some(&first_widget));
         paned.set_end_child(Some(&rest_widget));
 
-        let initial_ratio = 1.0 / (children.len() as f64);
+        let is_horizontal = orientation == gtk4::Orientation::Horizontal;
+        let anchor_pane_id = first_pane_in_node(&children[0]);
+        let default_ratio = 1.0 / (children.len() as f64);
+        let initial_ratio = self
+            .tree
+            .borrow()
+            .split_ratio(is_horizontal, anchor_pane_id, default_ratio);
+
         let ratio = Rc::new(Cell::new(initial_ratio));
         let last_max = Rc::new(Cell::new(0i32));
         let updating_pos = Rc::new(Cell::new(false));
@@ -833,6 +840,7 @@ impl Workspace {
             let ratio_c = Rc::clone(&ratio);
             let last_max_c = Rc::clone(&last_max);
             let updating_c = Rc::clone(&updating_pos);
+            let ws_weak = Rc::downgrade(self);
             paned.connect_notify_local(Some("position"), move |p, _| {
                 if updating_c.get() {
                     return;
@@ -843,6 +851,12 @@ impl Workspace {
                     if (p.position() - expected).abs() > 1 {
                         let new_ratio = (p.position() as f64 / max_pos as f64).clamp(0.05, 0.95);
                         ratio_c.set(new_ratio);
+                        // ツリー側に現在の分割比率を記憶させる
+                        if let Some(ws) = ws_weak.upgrade() {
+                            ws.tree
+                                .borrow_mut()
+                                .set_split_ratio(is_horizontal, anchor_pane_id, new_ratio);
+                        }
                     }
                 }
             });
