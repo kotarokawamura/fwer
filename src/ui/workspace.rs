@@ -150,14 +150,32 @@ impl Workspace {
                 background-color: rgba({}, {}, {}, {:.3});
                 border: 1px solid {frame_border};
              }}
-             .fwer-workspace paned > separator {{
+
+             .fwer-workspace paned > separator,
+             .fwer-workspace paned > separator.wide {{
                 background-image: none;
                 background-color: {sep_hex};
-                border: 1px solid {sep_border_hex};
+                border: none;
                 box-shadow: none;
                 outline: none;
                 min-width: {sep_w}px;
                 min-height: {sep_w}px;
+             }}
+             .fwer-workspace paned.horizontal > :first-child.fwer-pane,
+             .fwer-workspace paned.horizontal > :first-child .fwer-pane {{
+                border-right: 1px solid {sep_border_hex};
+             }}
+             .fwer-workspace paned.horizontal > :last-child.fwer-pane,
+             .fwer-workspace paned.horizontal > :last-child .fwer-pane {{
+                border-left: 1px solid {sep_border_hex};
+             }}
+             .fwer-workspace paned.vertical > :first-child.fwer-pane,
+             .fwer-workspace paned.vertical > :first-child .fwer-pane {{
+                border-bottom: 1px solid {sep_border_hex};
+             }}
+             .fwer-workspace paned.vertical > :last-child.fwer-pane,
+             .fwer-workspace paned.vertical > :last-child .fwer-pane {{
+                border-top: 1px solid {sep_border_hex};
              }}
              .fwer-disabled-row, .fwer-disabled-row * {{
                 opacity: 0.35;
@@ -213,6 +231,22 @@ impl Workspace {
                 color: #9da5b4;
                 font-size: {:.1}px;
                 margin-left: 16px;
+/* .wide も含めてすべてのセパレーターの枠線・影を完全に消す */
+             .fwer-workspace paned > separator,
+             .fwer-workspace paned > separator.wide,
+             .fwer-workspace paned.horizontal > separator,
+             .fwer-workspace paned.horizontal > separator.wide,
+             .fwer-workspace paned.vertical > separator,
+             .fwer-workspace paned.vertical > separator.wide {{
+                background-image: none;
+                background-color: {sep_hex};
+                border: none;
+                border-width: 0px;
+                box-shadow: none;
+                outline: none;
+                margin: 0px;
+                min-width: {sep_w}px;
+                min-height: {sep_w}px;
              }}",
             frame_bg.0,
             frame_bg.1,
