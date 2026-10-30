@@ -313,18 +313,14 @@ impl TerminalPaneWidget {
                     InteractionMode::BlockedByModal => {
                         gesture.set_state(gtk4::EventSequenceState::Claimed);
                     }
-                    InteractionMode::MovingPane(_) | InteractionMode::SelectingBroadcast(_) => {
+                    _ if mode.click_selects_pane() => {
                         gesture.set_state(gtk4::EventSequenceState::Claimed);
                         cb(PaneEvent::ClickedInSpecialMode {
                             tile_id: pane.tile_id,
                             keep_selecting,
                         });
                     }
-                    InteractionMode::ResizingPane(_) | InteractionMode::AdjustingOpacity(_) => {
-                        gesture.set_state(gtk4::EventSequenceState::Claimed);
-                        cb(PaneEvent::CancelSpecialMode); // Workspace側に終了を通知するだけ
-                    }
-                    InteractionMode::ResizingPane(_) => {
+                    _ if mode.toggle_shortcut(& pane.settings_cache.borrow().shortcuts).is_some() => {
                         gesture.set_state(gtk4::EventSequenceState::Claimed);
                         cb(PaneEvent::CancelSpecialMode);
                     }
@@ -339,6 +335,7 @@ impl TerminalPaneWidget {
                             });
                         }
                     }
+                    _ => {}
                 }
             });
             term_widget.add_controller(click);
@@ -403,22 +400,8 @@ impl TerminalPaneWidget {
                 let mode = pane.current_mode.get();
                 let sc = pane.settings_cache.borrow().shortcuts.clone();
 
-                if matches!(
-                    mode,
-                    InteractionMode::MovingPane(_)
-                        | InteractionMode::SelectingBroadcast(_)
-                        | InteractionMode::ResizingPane(_)
-                        | InteractionMode::AdjustingOpacity(_)
-                ) {
-                    if (matches!(mode, InteractionMode::MovingPane(_))
-                        && matches_gdk_shortcut(&sc.toggle_move_mode, key, mods))
-                        || (matches!(mode, InteractionMode::ResizingPane(_))
-                        && matches_gdk_shortcut(&sc.toggle_resize_mode, key, mods))
-                        || (matches!(mode, InteractionMode::SelectingBroadcast(_))
-                        && matches_gdk_shortcut(&sc.toggle_broadcast_mode, key, mods))
-                        || (matches!(mode, InteractionMode::AdjustingOpacity(_))
-                        && matches_gdk_shortcut(&sc.toggle_opacity_mode, key, mods))
-                    {
+                if let Some(toggle_spec) = mode.toggle_shortcut(&sc) {
+                    if matches_gdk_shortcut(toggle_spec, key, mods) {
                         cb(PaneEvent::CancelSpecialMode);
                         return glib::Propagation::Stop;
                     }
@@ -560,41 +543,15 @@ impl TerminalPaneWidget {
 
     pub fn refresh_highlight_frame(&self) {
         let mode = self.current_mode.get();
-        let is_move_source = matches!(mode, InteractionMode::MovingPane(id) if id == self.tile_id);
-        let is_bcast_source =
-            matches!(mode, InteractionMode::SelectingBroadcast(id) if id == self.tile_id);
-        let is_resize_source =
-            matches!(mode, InteractionMode::ResizingPane(id) if id == self.tile_id);
-        let is_opacity_source = // ← 追加
-            matches!(mode, InteractionMode::AdjustingOpacity(id) if id == self.tile_id);
-        let is_special_selecting = matches!(
-            mode,
-            InteractionMode::MovingPane(_) | InteractionMode::SelectingBroadcast(_)
-        );
 
-        self.highlight_frame
-            .remove_css_class("fwer-pane-moving-source");
-        self.highlight_frame
-            .remove_css_class("fwer-pane-broadcast-source");
-        self.highlight_frame
-            .remove_css_class("fwer-pane-resizing-source");
-        self.highlight_frame
-            .remove_css_class("fwer-pane-target-hover");
-        self.highlight_frame
-            .remove_css_class("fwer-pane-opacity-source");
+        for &cls in InteractionMode::ALL_SOURCE_CSS_CLASSES {
+            self.highlight_frame.remove_css_class(cls);
+        }
+        self.highlight_frame.remove_css_class("fwer-pane-target-hover");
 
-        if is_move_source {
-            self.highlight_frame.add_css_class("fwer-pane-moving-source");
-        } else if is_bcast_source {
-            self.highlight_frame
-                .add_css_class("fwer-pane-broadcast-source");
-        } else if is_resize_source {
-            self.highlight_frame
-                .add_css_class("fwer-pane-resizing-source");
-        } else if is_opacity_source {
-            self.highlight_frame
-                .add_css_class("fwer-pane-opacity-source");
-        } else if is_special_selecting && (self.is_hovered.get() || self.is_kb_target.get()) {
+        if let Some(cls) = mode.source_css_class(self.tile_id) {
+            self.highlight_frame.add_css_class(cls);
+        } else if mode.click_selects_pane() && (self.is_hovered.get() || self.is_kb_target.get()) {
             self.highlight_frame.add_css_class("fwer-pane-target-hover");
         }
     }
