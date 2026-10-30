@@ -1406,106 +1406,8 @@ impl PreferencesWindow {
 
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         let s = self.workspace.settings();
-        let defaults = ShortcutSettings::default();
 
-        let slots: [(&str, &str, &str, &str); 19] = [
-            ("copy", "Copy", &s.shortcuts.copy, &defaults.copy),
-            ("paste", "Paste", &s.shortcuts.paste, &defaults.paste),
-            (
-                "split_horizontal",
-                "Split Horizontally",
-                &s.shortcuts.split_horizontal,
-                &defaults.split_horizontal,
-            ),
-            (
-                "split_vertical",
-                "Split Vertically",
-                &s.shortcuts.split_vertical,
-                &defaults.split_vertical,
-            ),
-            ("new_tab", "New Tab", &s.shortcuts.new_tab, &defaults.new_tab),
-            (
-                "close_pane",
-                "Close Pane",
-                &s.shortcuts.close_pane,
-                &defaults.close_pane,
-            ),
-            (
-                "focus_next_pane",
-                "Focus Next Pane",
-                &s.shortcuts.focus_next_pane,
-                &defaults.focus_next_pane,
-            ),
-            (
-                "focus_prev_pane",
-                "Focus Prev Pane",
-                &s.shortcuts.focus_prev_pane,
-                &defaults.focus_prev_pane,
-            ),
-            (
-                "open_preferences",
-                "Open Preferences",
-                &s.shortcuts.open_preferences,
-                &defaults.open_preferences,
-            ),
-            (
-                "close_preferences",
-                "Close Preferences",
-                &s.shortcuts.close_preferences,
-                &defaults.close_preferences,
-            ),
-            (
-                "toggle_collapse_preferences",
-                "Toggle Collapse Preferences",
-                &s.shortcuts.toggle_collapse_preferences,
-                &defaults.toggle_collapse_preferences,
-            ),
-            (
-                "toggle_fullscreen",
-                "Toggle Fullscreen",
-                &s.shortcuts.toggle_fullscreen,
-                &defaults.toggle_fullscreen,
-            ),
-            ("zoom_in", "Zoom In", &s.shortcuts.zoom_in, &defaults.zoom_in),
-            (
-                "zoom_out",
-                "Zoom Out",
-                &s.shortcuts.zoom_out,
-                &defaults.zoom_out,
-            ),
-            (
-                "zoom_reset",
-                "Zoom Reset",
-                &s.shortcuts.zoom_reset,
-                &defaults.zoom_reset,
-            ),
-            (
-                "toggle_move_mode",
-                "Pane Move Mode",
-                &s.shortcuts.toggle_move_mode,
-                &defaults.toggle_move_mode,
-            ),
-            (
-                "toggle_resize_mode",
-                "Split Resize Mode",
-                &s.shortcuts.toggle_resize_mode,
-                &defaults.toggle_resize_mode,
-            ),
-            (
-                "toggle_broadcast_mode",
-                "Broadcast Mode",
-                &s.shortcuts.toggle_broadcast_mode,
-                &defaults.toggle_broadcast_mode,
-            ),
-            (
-                "toggle_opacity_mode",
-                "Opacity Adjust Mode",
-                &s.shortcuts.toggle_opacity_mode,
-                &defaults.toggle_opacity_mode,
-            ),
-        ];
-
-        for (slot_key, label, current_val, default_val) in slots {
+        for (slot_key, label, current_val, default_val) in s.shortcuts.slots() {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
 
             let lbl = gtk4::Label::new(Some(&tr(label)));
@@ -1736,28 +1638,7 @@ fn color_status_text(raw: &str) -> String {
 }
 
 fn get_shortcut_slot_value(sc: &ShortcutSettings, slot_key: &str) -> String {
-    match slot_key {
-        "copy" => sc.copy.clone(),
-        "paste" => sc.paste.clone(),
-        "split_horizontal" => sc.split_horizontal.clone(),
-        "split_vertical" => sc.split_vertical.clone(),
-        "new_tab" => sc.new_tab.clone(),
-        "close_pane" => sc.close_pane.clone(),
-        "focus_next_pane" => sc.focus_next_pane.clone(),
-        "focus_prev_pane" => sc.focus_prev_pane.clone(),
-        "open_preferences" => sc.open_preferences.clone(),
-        "close_preferences" => sc.close_preferences.clone(),
-        "toggle_collapse_preferences" => sc.toggle_collapse_preferences.clone(),
-        "toggle_fullscreen" => sc.toggle_fullscreen.clone(),
-        "zoom_in" => sc.zoom_in.clone(),
-        "zoom_out" => sc.zoom_out.clone(),
-        "zoom_reset" => sc.zoom_reset.clone(),
-        "toggle_move_mode" => sc.toggle_move_mode.clone(),
-        "toggle_resize_mode" => sc.toggle_resize_mode.clone(),
-        "toggle_broadcast_mode" => sc.toggle_broadcast_mode.clone(),
-        "toggle_opacity_mode" => sc.toggle_opacity_mode.clone(),
-        _ => String::new(),
-    }
+    sc.get_slot(slot_key)
 }
 
 fn apply_shortcut_slot_update(
@@ -1766,38 +1647,5 @@ fn apply_shortcut_slot_update(
     new_val: &str,
     append: bool,
 ) {
-    let update = |field: &mut String| {
-        if append && !field.trim().is_empty() {
-            let mut list = split_shortcut_bindings(field);
-            if !list.iter().any(|x| x.eq_ignore_ascii_case(new_val)) {
-                list.push(new_val.to_string());
-            }
-            *field = list.join(" / ");
-        } else {
-            *field = new_val.to_string();
-        }
-    };
-
-    match slot_key {
-        "copy" => update(&mut sc.copy),
-        "paste" => update(&mut sc.paste),
-        "split_horizontal" => update(&mut sc.split_horizontal),
-        "split_vertical" => update(&mut sc.split_vertical),
-        "new_tab" => update(&mut sc.new_tab),
-        "close_pane" => update(&mut sc.close_pane),
-        "focus_next_pane" => update(&mut sc.focus_next_pane),
-        "focus_prev_pane" => update(&mut sc.focus_prev_pane),
-        "open_preferences" => update(&mut sc.open_preferences),
-        "close_preferences" => update(&mut sc.close_preferences),
-        "toggle_collapse_preferences" => update(&mut sc.toggle_collapse_preferences),
-        "toggle_fullscreen" => update(&mut sc.toggle_fullscreen),
-        "zoom_in" => update(&mut sc.zoom_in),
-        "zoom_out" => update(&mut sc.zoom_out),
-        "zoom_reset" => update(&mut sc.zoom_reset),
-        "toggle_move_mode" => update(&mut sc.toggle_move_mode),
-        "toggle_resize_mode" => update(&mut sc.toggle_resize_mode),
-        "toggle_broadcast_mode" => update(&mut sc.toggle_broadcast_mode),
-        "toggle_opacity_mode" => update(&mut sc.toggle_opacity_mode),
-        _ => {}
-    }
+    sc.update_slot(slot_key, new_val, append);
 }

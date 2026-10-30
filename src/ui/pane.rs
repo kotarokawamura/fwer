@@ -13,6 +13,7 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+pub use crate::config::theme::PaneShortcutAction;
 use crate::config::theme::{ThemeSettings, matches_gdk_shortcut};
 use crate::ui::state::{InteractionMode, PaneContext, TileId};
 use crate::ui::titlebar::{TitlebarEvent, TitlebarWidget};
@@ -53,27 +54,6 @@ pub enum PaneEvent {
         bytes: Vec<u8>,
     },
     ChildExited(TileId),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneShortcutAction {
-    Copy,
-    Paste,
-    SplitHorizontal,
-    SplitVertical,
-    NewTab,
-    ClosePane,
-    FocusNextPane,
-    FocusPrevPane,
-    OpenPreferences,
-    ToggleFullscreen,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    ToggleMoveMode,
-    ToggleResizeMode,
-    ToggleBroadcastMode,
-    ToggleOpacityMode,
 }
 
 /// Computes the clamped zoom multiplier according to Section 10.5.3:
@@ -490,36 +470,11 @@ impl TerminalPaneWidget {
                     return glib::Propagation::Stop;
                 }
 
-                let check_sc = |spec: &str, act: PaneShortcutAction| -> bool {
-                    if matches_gdk_shortcut(spec, key, mods) {
-                        cb(PaneEvent::ShortcutTriggered {
-                            tile_id: pane.tile_id,
-                            action: act,
-                        });
-                        true
-                    } else {
-                        false
-                    }
-                };
-
-                if check_sc(&sc.copy, PaneShortcutAction::Copy)
-                    || check_sc(&sc.paste, PaneShortcutAction::Paste)
-                    || check_sc(&sc.split_horizontal, PaneShortcutAction::SplitHorizontal)
-                    || check_sc(&sc.split_vertical, PaneShortcutAction::SplitVertical)
-                    || check_sc(&sc.new_tab, PaneShortcutAction::NewTab)
-                    || check_sc(&sc.close_pane, PaneShortcutAction::ClosePane)
-                    || check_sc(&sc.focus_next_pane, PaneShortcutAction::FocusNextPane)
-                    || check_sc(&sc.focus_prev_pane, PaneShortcutAction::FocusPrevPane)
-                    || check_sc(&sc.open_preferences, PaneShortcutAction::OpenPreferences)
-                    || check_sc(&sc.toggle_fullscreen, PaneShortcutAction::ToggleFullscreen)
-                    || check_sc(&sc.zoom_in, PaneShortcutAction::ZoomIn)
-                    || check_sc(&sc.zoom_out, PaneShortcutAction::ZoomOut)
-                    || check_sc(&sc.zoom_reset, PaneShortcutAction::ZoomReset)
-                    || check_sc(&sc.toggle_move_mode, PaneShortcutAction::ToggleMoveMode)
-                    || check_sc(&sc.toggle_resize_mode, PaneShortcutAction::ToggleResizeMode)
-                    || check_sc(&sc.toggle_broadcast_mode, PaneShortcutAction::ToggleBroadcastMode)
-                    || check_sc(&sc.toggle_opacity_mode, PaneShortcutAction::ToggleOpacityMode)
-                {
+                if let Some(action) = sc.match_pane_shortcut(key, mods) {
+                    cb(PaneEvent::ShortcutTriggered {
+                        tile_id: pane.tile_id,
+                        action,
+                    });
                     return glib::Propagation::Stop;
                 }
 

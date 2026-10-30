@@ -44,67 +44,139 @@ pub fn legacy_config_path() -> PathBuf {
     PathBuf::from(home).join(".config/termini/config.json")
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct ShortcutSettings {
-    pub copy: String,
-    pub paste: String,
-    pub split_horizontal: String,
-    pub split_vertical: String,
-    pub new_tab: String,
-    pub close_pane: String,
-    pub focus_next_pane: String,
-    pub focus_prev_pane: String,
-    pub open_preferences: String,
-    pub close_preferences: String,
-    pub toggle_collapse_preferences: String,
-    pub toggle_fullscreen: String,
-    pub zoom_in: String,
-    pub zoom_out: String,
-    pub zoom_reset: String,
-    #[serde(default = "default_toggle_move_mode")]
-    pub toggle_move_mode: String,
-    #[serde(default = "default_toggle_resize_mode")]
-    pub toggle_resize_mode: String,
-    #[serde(default = "default_toggle_broadcast_mode")]
-    pub toggle_broadcast_mode: String,
-    #[serde(default = "default_toggle_opacity_mode")]
-    pub toggle_opacity_mode: String,
-}
-
-fn default_toggle_move_mode() -> String { "Ctrl+Shift+M".to_string() }
-fn default_toggle_resize_mode() -> String {
-    "Ctrl+Shift+R".to_string()
-}
-fn default_toggle_broadcast_mode() -> String {
-    "Ctrl+Shift+B".to_string()
-}
-fn default_toggle_opacity_mode() -> String { "Ctrl+Shift+A".to_string() }
-
-impl Default for ShortcutSettings {
-    fn default() -> Self {
-        Self {
-            copy: "Ctrl+Shift+C".to_string(),
-            paste: "Ctrl+Shift+V".to_string(),
-            split_horizontal: "Ctrl+Shift+E".to_string(),
-            split_vertical: "Ctrl+Shift+O".to_string(),
-            new_tab: "Ctrl+Shift+T".to_string(),
-            close_pane: "Ctrl+Shift+W".to_string(),
-            focus_next_pane: "Ctrl+Tab".to_string(),
-            focus_prev_pane: "Ctrl+Shift+Tab".to_string(),
-            open_preferences: "Ctrl+,".to_string(),
-            close_preferences: "Ctrl+Shift+W".to_string(),
-            toggle_collapse_preferences: "Ctrl+Shift+M".to_string(),
-            toggle_fullscreen: "F11".to_string(),
-            zoom_in: "Ctrl+=".to_string(),
-            zoom_out: "Ctrl+-".to_string(),
-            zoom_reset: "Ctrl+0".to_string(),
-            toggle_move_mode: default_toggle_move_mode(),
-            toggle_resize_mode: default_toggle_resize_mode(),
-            toggle_broadcast_mode: default_toggle_broadcast_mode(),
-            toggle_opacity_mode: default_toggle_opacity_mode(),
+macro_rules! define_shortcuts {
+    // 1. エントリポイント
+    (
+        $(
+            $field:ident => {
+                label: $label:literal,
+                default: $default:literal
+                $(, action: $action:ident)? $(,)?
+            }
+        ),* $(,)?
+    ) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(default)]
+        pub struct ShortcutSettings {
+            $(
+                pub $field: String,
+            )*
         }
-    }
+
+        impl Default for ShortcutSettings {
+            fn default() -> Self {
+                Self {
+                    $(
+                        $field: $default.to_string(),
+                    )*
+                }
+            }
+        }
+
+        // action が指定された項目だけを集めて PaneShortcutAction enum を自動生成
+        define_shortcuts!(@collect_enum [] $( $field $(: $action)?, )*);
+
+        impl ShortcutSettings {
+            /// 設定画面（prefs_ui.rs）の行構築用:
+            /// (slot_key, label, current_val, default_val) の一覧を定義順で返す
+            pub fn slots(&self) -> Vec<(&'static str, &'static str, &str, &'static str)> {
+                vec![
+                    $(
+                        (stringify!($field), $label, self.$field.as_str(), $default),
+                    )*
+                ]
+            }
+
+            /// slot_key から現在の設定文字列を取得する
+            pub fn get_slot(&self, slot_key: &str) -> String {
+                match slot_key {
+                    $(
+                        stringify!($field) => self.$field.clone(),
+                    )*
+                    _ => String::new(),
+                }
+            }
+
+            /// slot_key に対応するフィールドを更新する（append 対応）
+            pub fn update_slot(&mut self, slot_key: &str, new_val: &str, append: bool) {
+                let update = |field: &mut String| {
+                    if append && !field.trim().is_empty() {
+                        let mut list = split_shortcut_bindings(field);
+                        if !list.iter().any(|x| x.eq_ignore_ascii_case(new_val)) {
+                            list.push(new_val.to_string());
+                        }
+                        *field = list.join(" / ");
+                    } else {
+                        *field = new_val.to_string();
+                    }
+                };
+
+                match slot_key {
+                    $(
+                        stringify!($field) => update(&mut self.$field),
+                    )*
+                    _ => {}
+                }
+            }
+
+            /// 押されたキーに一致する PaneShortcutAction を返す（pane.rs の check_sc 代替）
+            pub fn match_pane_shortcut(
+                &self,
+                key: gdk::Key,
+                mods: gdk::ModifierType,
+            ) -> Option<PaneShortcutAction> {
+                $(
+                    define_shortcuts!(@check_pane self, key, mods, $field $(, $action)?);
+                )*
+                None
+            }
+        }
+    };
+
+    // 2. PaneShortcutAction 生成用 TT-muncher
+    (@collect_enum [ $($acc:ident,)* ]) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum PaneShortcutAction {
+            $( $acc, )*
+        }
+    };
+    (@collect_enum [ $($acc:ident,)* ] $field:ident : $action:ident, $($rest:tt)*) => {
+        define_shortcuts!(@collect_enum [ $($acc,)* $action, ] $($rest)*);
+    };
+    (@collect_enum [ $($acc:ident,)* ] $field:ident, $($rest:tt)*) => {
+        define_shortcuts!(@collect_enum [ $($acc,)* ] $($rest)*);
+    };
+
+    // 3. ショートカット一致判定展開用ヘルパー
+    (@check_pane $self:ident, $key:ident, $mods:ident, $field:ident, $action:ident) => {
+        if matches_gdk_shortcut(&$self.$field, $key, $mods) {
+            return Some(PaneShortcutAction::$action);
+        }
+    };
+    (@check_pane $self:ident, $key:ident, $mods:ident, $field:ident) => {};
+}
+
+// ショートカット定義リスト（今後ショートカットを増やす際はここに1行足すだけ）
+define_shortcuts! {
+    copy => { label: "Copy", default: "Ctrl+Shift+C", action: Copy },
+    paste => { label: "Paste", default: "Ctrl+Shift+V", action: Paste },
+    split_horizontal => { label: "Split Horizontally", default: "Ctrl+Shift+E", action: SplitHorizontal },
+    split_vertical => { label: "Split Vertically", default: "Ctrl+Shift+O", action: SplitVertical },
+    new_tab => { label: "New Tab", default: "Ctrl+Shift+T", action: NewTab },
+    close_pane => { label: "Close Pane", default: "Ctrl+Shift+W", action: ClosePane },
+    focus_next_pane => { label: "Focus Next Pane", default: "Ctrl+Tab", action: FocusNextPane },
+    focus_prev_pane => { label: "Focus Prev Pane", default: "Ctrl+Shift+Tab", action: FocusPrevPane },
+    open_preferences => { label: "Open Preferences", default: "Ctrl+,", action: OpenPreferences },
+    close_preferences => { label: "Close Preferences", default: "Ctrl+Shift+W" },
+    toggle_collapse_preferences => { label: "Toggle Collapse Preferences", default: "Ctrl+Shift+M" },
+    toggle_fullscreen => { label: "Toggle Fullscreen", default: "F11", action: ToggleFullscreen },
+    zoom_in => { label: "Zoom In", default: "Ctrl+=", action: ZoomIn },
+    zoom_out => { label: "Zoom Out", default: "Ctrl+-", action: ZoomOut },
+    zoom_reset => { label: "Zoom Reset", default: "Ctrl+0", action: ZoomReset },
+    toggle_move_mode => { label: "Pane Move Mode", default: "Ctrl+Shift+M", action: ToggleMoveMode },
+    toggle_resize_mode => { label: "Split Resize Mode", default: "Ctrl+Shift+R", action: ToggleResizeMode },
+    toggle_broadcast_mode => { label: "Broadcast Mode", default: "Ctrl+Shift+B", action: ToggleBroadcastMode },
+    toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+A", action: ToggleOpacityMode },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
