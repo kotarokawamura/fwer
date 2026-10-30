@@ -16,7 +16,16 @@ use gtk4::prelude::*;
 use crate::config::theme::{ThemeSettings, matches_gdk_shortcut};
 use crate::ui::state::{InteractionMode, PaneContext, TileId};
 use crate::ui::titlebar::{TitlebarEvent, TitlebarWidget};
+use crate::ui::tree_ops::Direction;
 use crate::vte::{TerminalBackend, create_terminal_backend};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpecialModeKey {
+    Move(Direction),
+    Confirm,
+    KeepSelecting,
+    Cancel,
+}
 
 #[derive(Debug, Clone)]
 pub enum PaneEvent {
@@ -33,6 +42,10 @@ pub enum PaneEvent {
     ShortcutTriggered {
         tile_id: TileId,
         action: PaneShortcutAction,
+    },
+    SpecialModeKeyInput {
+        tile_id: TileId,
+        key: SpecialModeKey,
     },
     CancelSpecialMode,
     BroadcastInput {
@@ -57,6 +70,9 @@ pub enum PaneShortcutAction {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    ToggleMoveMode,
+    ToggleResizeMode,
+    ToggleBroadcastMode,
 }
 
 /// Computes the clamped zoom multiplier according to Section 10.5.3:
@@ -155,6 +171,7 @@ pub struct TerminalPaneWidget {
     backend: Rc<RefCell<Box<dyn TerminalBackend>>>,
     current_mode: Rc<Cell<InteractionMode>>,
     is_hovered: Rc<Cell<bool>>,
+    is_kb_target: Rc<Cell<bool>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
     pinch_initial_zoom: Rc<Cell<f64>>,
 }
@@ -265,6 +282,7 @@ impl TerminalPaneWidget {
         let backend = Rc::new(RefCell::new(backend_box));
         let current_mode = Rc::new(Cell::new(InteractionMode::Normal));
         let is_hovered = Rc::new(Cell::new(false));
+        let is_kb_target = Rc::new(Cell::new(false));
         let settings_cache = Rc::new(RefCell::new(settings.clone()));
         let pinch_initial_zoom = Rc::new(Cell::new(1.0));
 
@@ -278,6 +296,7 @@ impl TerminalPaneWidget {
             backend,
             current_mode,
             is_hovered,
+            is_kb_target,
             settings_cache,
             pinch_initial_zoom,
         });
@@ -291,7 +310,7 @@ impl TerminalPaneWidget {
         term_widget: &gtk4::Widget,
         on_event: Rc<dyn Fn(PaneEvent)>,
     ) {
-        // 1. Capture mouse clicks on the pane for MovingPane / SelectingBroadcast / Modal block / Right-click menu
+        // 1. Capture mouse clicks on the pane for MovingPane / SelectingBroadcast / ResizingPane / Modal block / Right-click menu
         {
             let click = gtk4::GestureClick::new();
             click.set_button(0); // Listen to all mouse buttons
@@ -319,6 +338,10 @@ impl TerminalPaneWidget {
                             tile_id: pane.tile_id,
                             keep_selecting,
                         });
+                    }
+                    InteractionMode::ResizingPane(_) => {
+                        gesture.set_state(gtk4::EventSequenceState::Claimed);
+                        cb(PaneEvent::CancelSpecialMode);
                     }
                     InteractionMode::EditingTitle(_) | InteractionMode::Normal => {
                         cb(PaneEvent::Titlebar(TitlebarEvent::FocusPane(pane.tile_id)));
@@ -393,21 +416,71 @@ impl TerminalPaneWidget {
                     return glib::Propagation::Proceed;
                 };
                 let mode = pane.current_mode.get();
+                let sc = pane.settings_cache.borrow().shortcuts.clone();
 
                 if matches!(
                     mode,
-                    InteractionMode::MovingPane(_) | InteractionMode::SelectingBroadcast(_)
+                    InteractionMode::MovingPane(_)
+                        | InteractionMode::SelectingBroadcast(_)
+                        | InteractionMode::ResizingPane(_)
                 ) {
-                    if key == gdk::Key::Escape {
+                    if (matches!(mode, InteractionMode::MovingPane(_))
+                        && matches_gdk_shortcut(&sc.toggle_move_mode, key, mods))
+                        || (matches!(mode, InteractionMode::ResizingPane(_))
+                        && matches_gdk_shortcut(&sc.toggle_resize_mode, key, mods))
+                        || (matches!(mode, InteractionMode::SelectingBroadcast(_))
+                        && matches_gdk_shortcut(&sc.toggle_broadcast_mode, key, mods))
+                    {
                         cb(PaneEvent::CancelSpecialMode);
+                        return glib::Propagation::Stop;
+                    }
+
+                    let keep = mods.contains(gdk::ModifierType::CONTROL_MASK)
+                        || mods.contains(gdk::ModifierType::SHIFT_MASK)
+                        || mods.contains(gdk::ModifierType::SUPER_MASK);
+
+                    let special_key = match key {
+                        gdk::Key::Escape | gdk::Key::q | gdk::Key::Q => {
+                            Some(SpecialModeKey::Cancel)
+                        }
+                        gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::space => {
+                            if keep {
+                                Some(SpecialModeKey::KeepSelecting)
+                            } else {
+                                Some(SpecialModeKey::Confirm)
+                            }
+                        }
+                        gdk::Key::Left | gdk::Key::KP_Left | gdk::Key::h | gdk::Key::H => {
+                            Some(SpecialModeKey::Move(Direction::Left))
+                        }
+                        gdk::Key::Right | gdk::Key::KP_Right | gdk::Key::l | gdk::Key::L => {
+                            Some(SpecialModeKey::Move(Direction::Right))
+                        }
+                        gdk::Key::Up | gdk::Key::KP_Up | gdk::Key::k | gdk::Key::K => {
+                            Some(SpecialModeKey::Move(Direction::Up))
+                        }
+                        gdk::Key::Down | gdk::Key::KP_Down | gdk::Key::j | gdk::Key::J => {
+                            Some(SpecialModeKey::Move(Direction::Down))
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(sk) = special_key {
+                        if sk == SpecialModeKey::Cancel {
+                            cb(PaneEvent::CancelSpecialMode);
+                        } else {
+                            cb(PaneEvent::SpecialModeKeyInput {
+                                tile_id: pane.tile_id,
+                                key: sk,
+                            });
+                        }
                     }
                     return glib::Propagation::Stop;
                 }
+
                 if mode != InteractionMode::Normal {
                     return glib::Propagation::Stop;
                 }
-
-                let sc = pane.settings_cache.borrow().shortcuts.clone();
 
                 let check_sc = |spec: &str, act: PaneShortcutAction| -> bool {
                     if matches_gdk_shortcut(spec, key, mods) {
@@ -434,6 +507,12 @@ impl TerminalPaneWidget {
                     || check_sc(&sc.zoom_in, PaneShortcutAction::ZoomIn)
                     || check_sc(&sc.zoom_out, PaneShortcutAction::ZoomOut)
                     || check_sc(&sc.zoom_reset, PaneShortcutAction::ZoomReset)
+                    || check_sc(&sc.toggle_move_mode, PaneShortcutAction::ToggleMoveMode)
+                    || check_sc(&sc.toggle_resize_mode, PaneShortcutAction::ToggleResizeMode)
+                    || check_sc(
+                    &sc.toggle_broadcast_mode,
+                    PaneShortcutAction::ToggleBroadcastMode,
+                )
                 {
                     return glib::Propagation::Stop;
                 }
@@ -482,6 +561,7 @@ impl TerminalPaneWidget {
             });
             term_widget.add_controller(key_ctrl);
         }
+
         // 5. Track hover state over the pane so target border highlights during MovingPane / SelectingBroadcast
         {
             let motion = gtk4::EventControllerMotion::new();
@@ -512,42 +592,42 @@ impl TerminalPaneWidget {
         }
     }
 
+    pub fn set_keyboard_target(&self, targeted: bool) {
+        self.is_kb_target.set(targeted);
+        self.refresh_highlight_frame();
+    }
+
     pub fn refresh_highlight_frame(&self) {
         let mode = self.current_mode.get();
         let is_move_source = matches!(mode, InteractionMode::MovingPane(id) if id == self.tile_id);
         let is_bcast_source =
             matches!(mode, InteractionMode::SelectingBroadcast(id) if id == self.tile_id);
+        let is_resize_source =
+            matches!(mode, InteractionMode::ResizingPane(id) if id == self.tile_id);
         let is_special_selecting = matches!(
             mode,
             InteractionMode::MovingPane(_) | InteractionMode::SelectingBroadcast(_)
         );
 
+        self.highlight_frame
+            .remove_css_class("fwer-pane-moving-source");
+        self.highlight_frame
+            .remove_css_class("fwer-pane-broadcast-source");
+        self.highlight_frame
+            .remove_css_class("fwer-pane-resizing-source");
+        self.highlight_frame
+            .remove_css_class("fwer-pane-target-hover");
+
         if is_move_source {
             self.highlight_frame.add_css_class("fwer-pane-moving-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-broadcast-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-target-hover");
         } else if is_bcast_source {
             self.highlight_frame
                 .add_css_class("fwer-pane-broadcast-source");
+        } else if is_resize_source {
             self.highlight_frame
-                .remove_css_class("fwer-pane-moving-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-target-hover");
-        } else if is_special_selecting && self.is_hovered.get() {
+                .add_css_class("fwer-pane-resizing-source");
+        } else if is_special_selecting && (self.is_hovered.get() || self.is_kb_target.get()) {
             self.highlight_frame.add_css_class("fwer-pane-target-hover");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-moving-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-broadcast-source");
-        } else {
-            self.highlight_frame
-                .remove_css_class("fwer-pane-moving-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-broadcast-source");
-            self.highlight_frame
-                .remove_css_class("fwer-pane-target-hover");
         }
     }
 

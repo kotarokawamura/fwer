@@ -62,6 +62,22 @@ pub struct ShortcutSettings {
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
+    #[serde(default = "default_toggle_move_mode")]
+    pub toggle_move_mode: String,
+    #[serde(default = "default_toggle_resize_mode")]
+    pub toggle_resize_mode: String,
+    #[serde(default = "default_toggle_broadcast_mode")]
+    pub toggle_broadcast_mode: String,
+}
+
+fn default_toggle_move_mode() -> String {
+    "Ctrl+Shift+M".to_string()
+}
+fn default_toggle_resize_mode() -> String {
+    "Ctrl+Shift+R".to_string()
+}
+fn default_toggle_broadcast_mode() -> String {
+    "Ctrl+Shift+B".to_string()
 }
 
 impl Default for ShortcutSettings {
@@ -82,6 +98,9 @@ impl Default for ShortcutSettings {
             zoom_in: "Ctrl+=".to_string(),
             zoom_out: "Ctrl+-".to_string(),
             zoom_reset: "Ctrl+0".to_string(),
+            toggle_move_mode: default_toggle_move_mode(),
+            toggle_resize_mode: default_toggle_resize_mode(),
+            toggle_broadcast_mode: default_toggle_broadcast_mode(),
         }
     }
 }

@@ -9,6 +9,14 @@ use std::collections::HashMap;
 
 use super::state::TileId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneMeta {
     pub id: TileId,
@@ -54,16 +62,48 @@ impl WorkspaceTree {
         }
     }
 
-    pub fn split_ratio(&self, horizontal: bool, start_first_pane: Option<TileId>, default_ratio: f64) -> f64 {
+    pub fn split_ratio(
+        &self,
+        horizontal: bool,
+        start_first_pane: Option<TileId>,
+        default_ratio: f64,
+    ) -> f64 {
         start_first_pane
             .and_then(|id| self.split_ratios.get(&(horizontal, id)).copied())
             .unwrap_or(default_ratio)
     }
 
-    pub fn set_split_ratio(&mut self, horizontal: bool, start_first_pane: Option<TileId>, ratio: f64) {
+    pub fn set_split_ratio(
+        &mut self,
+        horizontal: bool,
+        start_first_pane: Option<TileId>,
+        ratio: f64,
+    ) {
         if let Some(id) = start_first_pane {
-            self.split_ratios.insert((horizontal, id), ratio.clamp(0.05, 0.95));
+            self.split_ratios
+                .insert((horizontal, id), ratio.clamp(0.05, 0.95));
         }
+    }
+
+    pub fn adjust_split_for_pane(&mut self, pane_id: TileId, dir: Direction, step: f64) -> bool {
+        let Some(ref root) = self.root else {
+            return false;
+        };
+        let want_horizontal = matches!(dir, Direction::Left | Direction::Right);
+        let delta = match dir {
+            Direction::Left | Direction::Up => -step,
+            Direction::Right | Direction::Down => step,
+        };
+
+        if let Some((anchor_id, default_ratio)) =
+            find_adjustable_split(root, pane_id, want_horizontal)
+        {
+            let cur = self.split_ratio(want_horizontal, Some(anchor_id), default_ratio);
+            let next = (cur + delta).clamp(0.05, 0.95);
+            self.set_split_ratio(want_horizontal, Some(anchor_id), next);
+            return true;
+        }
+        false
     }
 
     pub fn allocate_pane(&mut self, title: impl Into<String>, command: Option<String>) -> TileId {
@@ -110,7 +150,6 @@ impl WorkspaceTree {
         }
     }
 
-    /// Splits `target` horizontally (`horizontal = true` -> side-by-side) or vertically (`horizontal = false` -> top-bottom).
     pub fn split_pane(
         &mut self,
         target: TileId,
@@ -122,7 +161,8 @@ impl WorkspaceTree {
             return None;
         }
         if let Some(old_r) = self.split_ratios.get(&(horizontal, target)).copied() {
-            self.split_ratios.insert((horizontal, target), (old_r * 0.5).clamp(0.05, 0.95));
+            self.split_ratios
+                .insert((horizontal, target), (old_r * 0.5).clamp(0.05, 0.95));
         }
         let new_id = self.allocate_pane(title, command);
         if let Some(ref mut root) = self.root {
@@ -132,7 +172,6 @@ impl WorkspaceTree {
         Some(new_id)
     }
 
-    /// Adds a new tab alongside `target` (converting `target` into a `Tabs` container if not already in one).
     pub fn add_tab(
         &mut self,
         target: TileId,
@@ -150,7 +189,6 @@ impl WorkspaceTree {
         Some(new_id)
     }
 
-    /// Removes `target` from the tree. Returns `true` if the workspace is now completely empty.
     pub fn close_pane(&mut self, target: TileId) -> bool {
         let ordered_before = self.ordered_pane_ids();
         let target_pos = ordered_before.iter().position(|&id| id == target);
@@ -168,7 +206,11 @@ impl WorkspaceTree {
             return true;
         }
 
-        if self.active_pane == Some(target) || !self.active_pane.is_some_and(|a| self.panes.contains_key(&a)) {
+        if self.active_pane == Some(target)
+            || !self
+            .active_pane
+            .is_some_and(|a| self.panes.contains_key(&a))
+        {
             let next_focus = target_pos
                 .map(|idx| remaining[idx.min(remaining.len() - 1)])
                 .unwrap_or(remaining[0]);
@@ -177,7 +219,6 @@ impl WorkspaceTree {
         false
     }
 
-    /// Swaps the positions of two panes `a` and `b` in the layout tree.
     pub fn swap_panes(&mut self, a: TileId, b: TileId) -> bool {
         if a == b || !self.panes.contains_key(&a) || !self.panes.contains_key(&b) {
             return false;
@@ -197,7 +238,10 @@ impl WorkspaceTree {
         if ids.is_empty() {
             return None;
         }
-        let next = match self.active_pane.and_then(|cur| ids.iter().position(|&x| x == cur)) {
+        let next = match self
+            .active_pane
+            .and_then(|cur| ids.iter().position(|&x| x == cur))
+        {
             Some(idx) => ids[(idx + 1) % ids.len()],
             None => ids[0],
         };
@@ -210,7 +254,10 @@ impl WorkspaceTree {
         if ids.is_empty() {
             return None;
         }
-        let prev = match self.active_pane.and_then(|cur| ids.iter().position(|&x| x == cur)) {
+        let prev = match self
+            .active_pane
+            .and_then(|cur| ids.iter().position(|&x| x == cur))
+        {
             Some(0) => ids[ids.len() - 1],
             Some(idx) => ids[idx - 1],
             None => ids[0],
@@ -219,12 +266,10 @@ impl WorkspaceTree {
         Some(prev)
     }
 
-    /// Determines the pane currently located at the top-right corner of the workspace (Section 10.4).
     pub fn top_right_pane_id(&self) -> Option<TileId> {
         self.root.as_ref().and_then(find_top_right_pane)
     }
 
-    /// Links `source` and `target` into the same broadcast group (Section 10.3).
     pub fn link_broadcast_panes(&mut self, source: TileId, target: TileId) -> usize {
         if source == target
             || !self.panes.contains_key(&source)
@@ -232,8 +277,16 @@ impl WorkspaceTree {
         {
             return 0;
         }
-        let src_grp = self.panes.get(&source).map(|p| p.broadcast_group).unwrap_or(0);
-        let dst_grp = self.panes.get(&target).map(|p| p.broadcast_group).unwrap_or(0);
+        let src_grp = self
+            .panes
+            .get(&source)
+            .map(|p| p.broadcast_group)
+            .unwrap_or(0);
+        let dst_grp = self
+            .panes
+            .get(&target)
+            .map(|p| p.broadcast_group)
+            .unwrap_or(0);
 
         let group_id = if src_grp > 0 {
             src_grp
@@ -281,7 +334,6 @@ impl WorkspaceTree {
         g
     }
 
-    /// Returns all other pane IDs in the same broadcast group as `source`.
     pub fn broadcast_peers(&self, source: TileId) -> Vec<TileId> {
         let Some(meta) = self.panes.get(&source) else {
             return Vec::new();
@@ -296,13 +348,76 @@ impl WorkspaceTree {
             .filter(|&id| {
                 id != source
                     && self
-                        .panes
-                        .get(&id)
-                        .is_some_and(|p| p.broadcast_group == grp)
+                    .panes
+                    .get(&id)
+                    .is_some_and(|p| p.broadcast_group == grp)
             })
             .collect();
         peers.dedup();
         peers
+    }
+}
+
+fn find_adjustable_split(
+    node: &TreeNode,
+    target: TileId,
+    want_horizontal: bool,
+) -> Option<(TileId, f64)> {
+    match node {
+        TreeNode::Pane(_) => None,
+        TreeNode::Horizontal(children) | TreeNode::Vertical(children) => {
+            let is_horiz = matches!(node, TreeNode::Horizontal(_));
+            for (i, child) in children.iter().enumerate() {
+                if contains_pane(child, target) {
+                    if let Some(res) = find_adjustable_split(child, target, want_horizontal) {
+                        return Some(res);
+                    }
+                    if is_horiz == want_horizontal && children.len() >= 2 {
+                        let boundary_idx = if i + 1 < children.len() { i } else { i - 1 };
+                        let rem_len = children.len() - boundary_idx;
+                        let default_ratio = 1.0 / (rem_len as f64);
+                        if let Some(anchor) = first_pane_in_node(&children[boundary_idx]) {
+                            return Some((anchor, default_ratio));
+                        }
+                    }
+                    return None;
+                }
+            }
+            None
+        }
+        TreeNode::Tabs { children, .. } => {
+            for child in children {
+                if contains_pane(child, target) {
+                    return find_adjustable_split(child, target, want_horizontal);
+                }
+            }
+            None
+        }
+    }
+}
+
+fn contains_pane(node: &TreeNode, target: TileId) -> bool {
+    match node {
+        TreeNode::Pane(id) => *id == target,
+        TreeNode::Horizontal(children)
+        | TreeNode::Vertical(children)
+        | TreeNode::Tabs { children, .. } => children.iter().any(|c| contains_pane(c, target)),
+    }
+}
+
+fn first_pane_in_node(node: &TreeNode) -> Option<TileId> {
+    match node {
+        TreeNode::Pane(id) => Some(*id),
+        TreeNode::Horizontal(children) | TreeNode::Vertical(children) => {
+            children.first().and_then(first_pane_in_node)
+        }
+        TreeNode::Tabs {
+            children,
+            active_idx,
+        } => children
+            .get(*active_idx)
+            .or_else(|| children.first())
+            .and_then(first_pane_in_node),
     }
 }
 
@@ -349,7 +464,12 @@ fn activate_tabs_for_pane(node: &mut TreeNode, target: TileId) -> bool {
     }
 }
 
-fn replace_with_split(node: &mut TreeNode, target: TileId, new_id: TileId, horizontal: bool) -> bool {
+fn replace_with_split(
+    node: &mut TreeNode,
+    target: TileId,
+    new_id: TileId,
+    horizontal: bool,
+) -> bool {
     match node {
         TreeNode::Pane(id) if *id == target => {
             let pair = vec![TreeNode::Pane(target), TreeNode::Pane(new_id)];

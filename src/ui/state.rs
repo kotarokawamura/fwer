@@ -13,6 +13,7 @@ pub enum InteractionMode {
     Normal,
     MovingPane(TileId),
     SelectingBroadcast(TileId),
+    ResizingPane(TileId),
     EditingTitle(TileId),
     BlockedByModal,
 }
@@ -40,7 +41,9 @@ impl PaneContext {
     pub fn is_broadcast_source(&self) -> bool {
         self.mode == InteractionMode::SelectingBroadcast(self.tile_id)
     }
-
+    pub fn is_resize_source(&self) -> bool {
+        self.mode == InteractionMode::ResizingPane(self.tile_id)
+    }
     pub fn is_editing_this_title(&self) -> bool {
         self.mode == InteractionMode::EditingTitle(self.tile_id)
     }

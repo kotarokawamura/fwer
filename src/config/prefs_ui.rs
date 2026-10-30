@@ -1292,7 +1292,7 @@ impl PreferencesWindow {
         let s = self.workspace.settings();
         let defaults = ShortcutSettings::default();
 
-        let slots: [(&str, &str, &str, &str); 15] = [
+        let slots: [(&str, &str, &str, &str); 18] = [
             ("copy", "Copy", &s.shortcuts.copy, &defaults.copy),
             ("paste", "Paste", &s.shortcuts.paste, &defaults.paste),
             (
@@ -1362,6 +1362,24 @@ impl PreferencesWindow {
                 "Zoom Reset",
                 &s.shortcuts.zoom_reset,
                 &defaults.zoom_reset,
+            ),
+            (
+                "toggle_move_mode",
+                "Pane Move Mode",
+                &s.shortcuts.toggle_move_mode,
+                &defaults.toggle_move_mode,
+            ),
+            (
+                "toggle_resize_mode",
+                "Split Resize Mode",
+                &s.shortcuts.toggle_resize_mode,
+                &defaults.toggle_resize_mode,
+            ),
+            (
+                "toggle_broadcast_mode",
+                "Broadcast Mode",
+                &s.shortcuts.toggle_broadcast_mode,
+                &defaults.toggle_broadcast_mode,
             ),
         ];
 
@@ -1634,6 +1652,9 @@ fn apply_shortcut_slot_update(
         "zoom_in" => update(&mut sc.zoom_in),
         "zoom_out" => update(&mut sc.zoom_out),
         "zoom_reset" => update(&mut sc.zoom_reset),
+        "toggle_move_mode" => update(&mut sc.toggle_move_mode),
+        "toggle_resize_mode" => update(&mut sc.toggle_resize_mode),
+        "toggle_broadcast_mode" => update(&mut sc.toggle_broadcast_mode),
         _ => {}
     }
 }

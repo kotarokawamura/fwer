@@ -18,10 +18,10 @@ use crate::config::theme::{ThemeSettings, format_rgb_hex};
 use crate::menus::MenuManager;
 use crate::menus::renderer::show_context_menu_popover;
 use crate::menus::types::{MenuAction, MenuContext, MenuTargetKind};
-use crate::ui::pane::{PaneEvent, PaneShortcutAction, TerminalPaneWidget};
+use crate::ui::pane::{PaneEvent, PaneShortcutAction, SpecialModeKey, TerminalPaneWidget};
 use crate::ui::state::{InteractionMode, PaneContext, TileId};
 use crate::ui::titlebar::{TitlebarEvent, next_mode_on_grip_click};
-use crate::ui::tree_ops::{TreeNode, WorkspaceTree};
+use crate::ui::tree_ops::{Direction, TreeNode, WorkspaceTree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceWindowAction {
@@ -36,6 +36,7 @@ pub struct Workspace {
     pub tree: RefCell<WorkspaceTree>,
     pane_widgets: RefCell<HashMap<TileId, Rc<TerminalPaneWidget>>>,
     mode: Cell<InteractionMode>,
+    kb_target_pane: Cell<Option<TileId>>,
     modal_blocked: Cell<bool>,
     window_focused: Cell<bool>,
     settings: RefCell<ThemeSettings>,
@@ -68,13 +69,15 @@ impl Workspace {
         }
 
         let default_title = default_shell_title();
-        let (tree, first_id) = WorkspaceTree::with_initial_pane(&default_title, startup_command.clone());
+        let (tree, first_id) =
+            WorkspaceTree::with_initial_pane(&default_title, startup_command.clone());
 
         let ws = Rc::new(Self {
             root_box,
             tree: RefCell::new(tree),
             pane_widgets: RefCell::new(HashMap::new()),
             mode: Cell::new(InteractionMode::Normal),
+            kb_target_pane: Cell::new(None),
             modal_blocked: Cell::new(false),
             window_focused: Cell::new(true),
             settings: RefCell::new(initial_settings),
@@ -118,6 +121,7 @@ impl Workspace {
         self.modal_blocked.set(blocked);
         if blocked {
             self.mode.set(InteractionMode::BlockedByModal);
+            self.kb_target_pane.set(None);
         } else if self.mode.get() == InteractionMode::BlockedByModal {
             self.mode.set(InteractionMode::Normal);
         }
@@ -201,6 +205,9 @@ impl Workspace {
              .fwer-pane-broadcast-source {{
                 border: 2px solid rgb(56, 189, 248);
              }}
+             .fwer-pane-resizing-source {{
+                border: 2px solid rgb(74, 222, 128);
+             }}
              .fwer-pane-target-hover {{
                 border: 2px solid rgb(80, 180, 255);
              }}
@@ -233,7 +240,7 @@ impl Workspace {
                 color: #9da5b4;
                 font-size: {:.1}px;
                 margin-left: 16px;
-/* .wide も含めてすべてのセパレーターの枠線・影を完全に消す */
+             }}
              .fwer-workspace paned > separator,
              .fwer-workspace paned > separator.wide,
              .fwer-workspace paned.horizontal > separator,
@@ -283,7 +290,9 @@ impl Workspace {
                 }
             },
         );
-        self.pane_widgets.borrow_mut().insert(tile_id, Rc::clone(&pane));
+        self.pane_widgets
+            .borrow_mut()
+            .insert(tile_id, Rc::clone(&pane));
         pane
     }
 
@@ -298,6 +307,7 @@ impl Workspace {
                 match cur_mode {
                     InteractionMode::MovingPane(src_id) => {
                         self.mode.set(InteractionMode::Normal);
+                        self.kb_target_pane.set(None);
                         if src_id != tile_id {
                             let swapped = self.tree.borrow_mut().swap_panes(src_id, tile_id);
                             if swapped {
@@ -312,12 +322,14 @@ impl Workspace {
                         if src_id == tile_id {
                             self.tree.borrow_mut().leave_broadcast_group(src_id);
                             self.mode.set(InteractionMode::Normal);
+                            self.kb_target_pane.set(None);
                         } else {
                             self.tree
                                 .borrow_mut()
                                 .link_broadcast_panes(src_id, tile_id);
                             if !keep_selecting {
                                 self.mode.set(InteractionMode::Normal);
+                                self.kb_target_pane.set(None);
                             }
                         }
                         self.refresh_all_panes();
@@ -332,8 +344,12 @@ impl Workspace {
             PaneEvent::ShortcutTriggered { tile_id, action } => {
                 self.execute_shortcut_action(tile_id, action);
             }
+            PaneEvent::SpecialModeKeyInput { tile_id, key } => {
+                self.handle_special_mode_key(tile_id, key);
+            }
             PaneEvent::CancelSpecialMode => {
                 self.mode.set(InteractionMode::Normal);
+                self.kb_target_pane.set(None);
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -353,6 +369,150 @@ impl Workspace {
                 });
             }
         }
+    }
+
+    fn handle_special_mode_key(self: &Rc<Self>, tile_id: TileId, key: SpecialModeKey) {
+        match self.mode.get() {
+            InteractionMode::ResizingPane(src_id) => match key {
+                SpecialModeKey::Move(dir) => {
+                    if self
+                        .tree
+                        .borrow_mut()
+                        .adjust_split_for_pane(src_id, dir, 0.05)
+                    {
+                        self.rebuild_gtk_tree();
+                        self.refresh_all_panes();
+                        self.focus_active_pane();
+                    }
+                }
+                SpecialModeKey::Confirm
+                | SpecialModeKey::KeepSelecting
+                | SpecialModeKey::Cancel => {
+                    self.mode.set(InteractionMode::Normal);
+                    self.kb_target_pane.set(None);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+            },
+            InteractionMode::MovingPane(src_id) => match key {
+                SpecialModeKey::Move(dir) => {
+                    if let Some(target_id) = self.find_neighbor_pane(src_id, dir) {
+                        let swapped = self.tree.borrow_mut().swap_panes(src_id, target_id);
+                        if swapped {
+                            self.tree.borrow_mut().set_active_pane(src_id);
+                            self.rebuild_gtk_tree();
+                            self.refresh_all_panes();
+                            self.focus_active_pane();
+                        }
+                    }
+                }
+                SpecialModeKey::Confirm
+                | SpecialModeKey::KeepSelecting
+                | SpecialModeKey::Cancel => {
+                    self.mode.set(InteractionMode::Normal);
+                    self.kb_target_pane.set(None);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+            },
+            InteractionMode::SelectingBroadcast(src_id) => match key {
+                SpecialModeKey::Move(dir) => {
+                    let cur_target = self.kb_target_pane.get().unwrap_or(src_id);
+                    if let Some(next_target) = self.find_neighbor_pane(cur_target, dir) {
+                        self.kb_target_pane.set(Some(next_target));
+                        self.refresh_all_panes();
+                    }
+                }
+                SpecialModeKey::KeepSelecting => {
+                    let target = self.kb_target_pane.get().unwrap_or(tile_id);
+                    self.toggle_or_link_broadcast(src_id, target);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+                SpecialModeKey::Confirm => {
+                    let target = self.kb_target_pane.get().unwrap_or(tile_id);
+                    self.toggle_or_link_broadcast(src_id, target);
+                    self.mode.set(InteractionMode::Normal);
+                    self.kb_target_pane.set(None);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+                SpecialModeKey::Cancel => {
+                    self.mode.set(InteractionMode::Normal);
+                    self.kb_target_pane.set(None);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn toggle_or_link_broadcast(&self, src_id: TileId, target_id: TileId) {
+        let mut tree = self.tree.borrow_mut();
+        if src_id == target_id {
+            tree.leave_broadcast_group(src_id);
+        } else {
+            let src_grp = tree
+                .panes
+                .get(&src_id)
+                .map(|p| p.broadcast_group)
+                .unwrap_or(0);
+            let dst_grp = tree
+                .panes
+                .get(&target_id)
+                .map(|p| p.broadcast_group)
+                .unwrap_or(0);
+            if src_grp > 0 && src_grp == dst_grp {
+                tree.leave_broadcast_group(target_id);
+            } else {
+                tree.link_broadcast_panes(src_id, target_id);
+            }
+        }
+    }
+
+    fn find_neighbor_pane(&self, from_id: TileId, dir: Direction) -> Option<TileId> {
+        let widgets = self.pane_widgets.borrow();
+        let from_pane = widgets.get(&from_id)?;
+        let from_rect = from_pane.root.compute_bounds(&self.root_box)?;
+        let fx = (from_rect.x() + from_rect.width() * 0.5) as f64;
+        let fy = (from_rect.y() + from_rect.height() * 0.5) as f64;
+
+        let mut best: Option<(TileId, f64)> = None;
+
+        for (&id, pane) in widgets.iter() {
+            if id == from_id || !pane.root.is_mapped() {
+                continue;
+            }
+            let Some(r) = pane.root.compute_bounds(&self.root_box) else {
+                continue;
+            };
+            let cx = (r.x() + r.width() * 0.5) as f64;
+            let cy = (r.y() + r.height() * 0.5) as f64;
+            let dx = cx - fx;
+            let dy = cy - fy;
+
+            let valid = match dir {
+                Direction::Left => dx < -5.0,
+                Direction::Right => dx > 5.0,
+                Direction::Up => dy < -5.0,
+                Direction::Down => dy > 5.0,
+            };
+            if !valid {
+                continue;
+            }
+
+            let score = match dir {
+                Direction::Left | Direction::Right => dx.abs() + dy.abs() * 2.0,
+                Direction::Up | Direction::Down => dy.abs() + dx.abs() * 2.0,
+            };
+
+            if best.is_none_or(|(_, b_score)| score < b_score) {
+                best = Some((id, score));
+            }
+        }
+
+        best.map(|(id, _)| id)
     }
 
     fn commit_any_active_title_edit(&self) {
@@ -393,6 +553,9 @@ impl Workspace {
                     });
                     return;
                 }
+                if matches!(self.mode.get(), InteractionMode::ResizingPane(_)) {
+                    self.mode.set(InteractionMode::Normal);
+                }
                 self.commit_any_active_title_edit();
                 self.window_focused.set(true);
                 self.tree.borrow_mut().set_active_pane(tile_id);
@@ -401,19 +564,23 @@ impl Workspace {
             }
             TitlebarEvent::ToggleMoveMode(tile_id) => {
                 self.commit_any_active_title_edit();
+                self.tree.borrow_mut().set_active_pane(tile_id);
                 let next = next_mode_on_grip_click(self.mode.get(), tile_id, false);
                 self.mode.set(next);
+                self.kb_target_pane.set(None);
                 self.refresh_all_panes();
+                self.focus_active_pane();
             }
             TitlebarEvent::ToggleBroadcastSelectMode(tile_id) => {
                 self.commit_any_active_title_edit();
+                self.tree.borrow_mut().set_active_pane(tile_id);
                 let next = next_mode_on_grip_click(self.mode.get(), tile_id, true);
                 self.mode.set(next);
+                self.kb_target_pane.set(Some(tile_id));
                 self.refresh_all_panes();
+                self.focus_active_pane();
             }
             TitlebarEvent::StartEditingTitle(tile_id) => {
-                // Commit edits in other panes if any are being edited (either exclude this tile_id,
-                // or call begin_inline_edit after titlebar.rs sends StartEditingTitle).
                 for (&id, pane) in self.pane_widgets.borrow().iter() {
                     if id != tile_id {
                         if let Some(new_title) = pane.finish_title_edit_if_active() {
@@ -530,6 +697,42 @@ impl Workspace {
                     pane.reset_zoom();
                 }
             }
+            PaneShortcutAction::ToggleMoveMode => {
+                self.commit_any_active_title_edit();
+                let next = if self.mode.get() == InteractionMode::MovingPane(tile_id) {
+                    InteractionMode::Normal
+                } else {
+                    InteractionMode::MovingPane(tile_id)
+                };
+                self.mode.set(next);
+                self.kb_target_pane.set(None);
+                self.refresh_all_panes();
+                self.focus_active_pane();
+            }
+            PaneShortcutAction::ToggleResizeMode => {
+                self.commit_any_active_title_edit();
+                let next = if self.mode.get() == InteractionMode::ResizingPane(tile_id) {
+                    InteractionMode::Normal
+                } else {
+                    InteractionMode::ResizingPane(tile_id)
+                };
+                self.mode.set(next);
+                self.kb_target_pane.set(None);
+                self.refresh_all_panes();
+                self.focus_active_pane();
+            }
+            PaneShortcutAction::ToggleBroadcastMode => {
+                self.commit_any_active_title_edit();
+                let next = if self.mode.get() == InteractionMode::SelectingBroadcast(tile_id) {
+                    InteractionMode::Normal
+                } else {
+                    InteractionMode::SelectingBroadcast(tile_id)
+                };
+                self.mode.set(next);
+                self.kb_target_pane.set(Some(tile_id));
+                self.refresh_all_panes();
+                self.focus_active_pane();
+            }
         }
     }
 
@@ -587,14 +790,16 @@ impl Workspace {
             return;
         }
         self.mode.set(InteractionMode::Normal);
+        self.kb_target_pane.set(None);
         self.rebuild_gtk_tree();
         self.refresh_all_panes();
         self.focus_active_pane();
     }
 
-    pub fn save_current_layout(&self) -> Result< std::path::PathBuf, String> {
+    pub fn save_current_layout(&self) -> Result<std::path::PathBuf, String> {
         let tree = self.tree.borrow();
-        let node = LayoutNode::from_tree(&tree).ok_or_else(|| "Empty workspace tree".to_string())?;
+        let node =
+            LayoutNode::from_tree(&tree).ok_or_else(|| "Empty workspace tree".to_string())?;
         node.save_to_disk()
     }
 
@@ -602,7 +807,6 @@ impl Workspace {
         let node = LayoutNode::load_from_disk()?;
         let new_tree = node.build_tree();
 
-        // Detach all existing pane widgets
         for pane in self.pane_widgets.borrow().values() {
             if let Some(parent) = pane.root.parent() {
                 if let Ok(parent_box) = parent.downcast::<gtk4::Box>() {
@@ -625,6 +829,7 @@ impl Workspace {
 
         *self.tree.borrow_mut() = new_tree;
         self.mode.set(InteractionMode::Normal);
+        self.kb_target_pane.set(None);
 
         for (id, title, cmd) in panes_to_spawn {
             self.spawn_and_register_pane(id, &title, None, cmd.as_deref());
@@ -715,7 +920,6 @@ impl Workspace {
     pub fn rebuild_gtk_tree(self: &Rc<Self>) {
         self.rebuilding.set(true);
 
-        // Detach all pane widgets from their old slot boxes so they can be re-parented cleanly
         for pane in self.pane_widgets.borrow().values() {
             if let Some(parent) = pane.root.parent() {
                 if let Ok(parent_box) = parent.downcast::<gtk4::Box>() {
@@ -865,7 +1069,6 @@ impl Workspace {
                     if (p.position() - expected).abs() > 1 {
                         let new_ratio = (p.position() as f64 / max_pos as f64).clamp(0.05, 0.95);
                         ratio_c.set(new_ratio);
-                        // ツリー側に現在の分割比率を記憶させる
                         if let Some(ws) = ws_weak.upgrade() {
                             ws.tree
                                 .borrow_mut()
@@ -893,6 +1096,7 @@ impl Workspace {
         let active_id = tree.active_pane;
         let top_right_id = tree.top_right_pane_id();
         let mode = self.mode.get();
+        let kb_target = self.kb_target_pane.get();
         let win_focused = self.window_focused.get();
         let settings = self.settings.borrow().clone();
         let widgets = self.pane_widgets.borrow();
@@ -906,6 +1110,7 @@ impl Workspace {
             if let Some(meta) = tree.panes.get(&tile_id) {
                 pane.titlebar.set_title(&meta.title);
             }
+            pane.set_keyboard_target(kb_target == Some(tile_id));
             let ctx = PaneContext {
                 tile_id,
                 is_active: win_focused && active_id == Some(tile_id),
