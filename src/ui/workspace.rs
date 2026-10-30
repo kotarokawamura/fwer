@@ -186,12 +186,14 @@ impl Workspace {
                 border: 1px solid #414148;
                 border-radius: 4px;
                 padding: 6px 8px;
+                color: #e6e6e6;
              }}
              .fwer-font-card-selected {{
                 background-color: #23372a;
                 border: 2px solid #4ade80;
                 border-radius: 4px;
                 padding: 6px 8px;
+                color: #e6e6e6;
              }}
              .fwer-pane-moving-source {{
                 border: 2px solid rgb(250, 204, 21);
@@ -410,7 +412,19 @@ impl Workspace {
                 self.refresh_all_panes();
             }
             TitlebarEvent::StartEditingTitle(tile_id) => {
-                self.commit_any_active_title_edit();
+                // Commit edits in other panes if any are being edited (either exclude this tile_id,
+                // or call begin_inline_edit after titlebar.rs sends StartEditingTitle).
+                for (&id, pane) in self.pane_widgets.borrow().iter() {
+                    if id != tile_id {
+                        if let Some(new_title) = pane.finish_title_edit_if_active() {
+                            if let Some(meta) = self.tree.borrow_mut().panes.get_mut(&id)
+                                && !new_title.trim().is_empty()
+                            {
+                                meta.title = new_title.trim().to_string();
+                            }
+                        }
+                    }
+                }
                 self.mode.set(InteractionMode::EditingTitle(tile_id));
                 self.refresh_all_panes();
             }

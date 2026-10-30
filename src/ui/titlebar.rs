@@ -306,24 +306,6 @@ impl TitlebarWidget {
     }
 
     fn setup_interactions(self: &Rc<Self>, on_event: Rc<dyn Fn(TitlebarEvent)>) {
-        // Double-click on the title label -> inline edit
-        {
-            let click_lbl = gtk4::GestureClick::new();
-            click_lbl.set_button(1);
-            let w_weak = Rc::downgrade(self);
-            let cb = Rc::clone(&on_event);
-            click_lbl.connect_pressed(move |gesture, n_press, _x, _y| {
-                if n_press == 2 {
-                    gesture.set_state(gtk4::EventSequenceState::Claimed);
-                    if let Some(w) = w_weak.upgrade() {
-                        w.begin_inline_edit();
-                        cb(TitlebarEvent::StartEditingTitle(w.tile_id));
-                    }
-                }
-            });
-            self.title_label.add_controller(click_lbl);
-        }
-
         // Left-click / double-click / drag on the titlebar background -> focus, maximize toggle, or window move
         {
             let click_bg = gtk4::GestureClick::new();
@@ -346,12 +328,15 @@ impl TitlebarWidget {
                     cb(TitlebarEvent::FocusPane(w.tile_id));
                     return;
                 }
-                cb(TitlebarEvent::FocusPane(w.tile_id));
 
                 // Check if click is inside the title label
                 if let Some(bounds) = w.title_label.compute_bounds(&w.root) {
                     if bounds.contains_point(&gtk4::graphene::Point::new(x as f32, y as f32)) {
-                        if n_press == 2 {
+                        if n_press == 1 {
+                            // 1回目のクリック時はペインにフォーカスを当てるだけ
+                            cb(TitlebarEvent::FocusPane(w.tile_id));
+                        } else if n_press == 2 {
+                            // 2回目のクリック時は FocusPane を呼ばずに編集モードへ入る
                             gesture.set_state(gtk4::EventSequenceState::Claimed);
                             w.begin_inline_edit();
                             cb(TitlebarEvent::StartEditingTitle(w.tile_id));
@@ -359,6 +344,9 @@ impl TitlebarWidget {
                         return;
                     }
                 }
+
+                // --- ここから下（title_label 以外の場所）は既存のまま ---
+                cb(TitlebarEvent::FocusPane(w.tile_id));
 
                 if n_press == 2 {
                     gesture.set_state(gtk4::EventSequenceState::Claimed);
@@ -477,8 +465,12 @@ impl TitlebarWidget {
         self.is_editing.set(true);
         self.title_entry.set_text(&self.current_title.borrow());
         self.title_stack.set_visible_child_name("entry");
-        self.title_entry.grab_focus();
-        self.title_entry.select_region(0, -1);
+
+        let entry = self.title_entry.clone();
+        glib::idle_add_local_once(move || {
+            entry.grab_focus();
+            entry.select_region(0, -1);
+        });
     }
 
     pub fn commit_inline_edit(&self, new_title: &str) {
@@ -561,7 +553,8 @@ impl TitlebarWidget {
         let btn_active_bg_hex = format_rgb_hex(btn_active_bg);
 
         let ui_font_px = settings.effective_ui_font_size();
-        let title_font_px = (ui_font_px - 3.0).clamp(9.0, 20.0);
+        //TODO: title bar text has poor visibility.
+        let title_font_px = (ui_font_px - 1.5).clamp(9.0, 20.0);
         let btn_font_px = (ui_font_px - 3.0).clamp(9.0, 18.0);
         let bar_h = (title_font_px.round() as i32 + 10).max(20);
         let btn_h = (bar_h - 6).max(14);
@@ -589,7 +582,7 @@ impl TitlebarWidget {
              }}
              .{scope} .fwer-tb-title {{
                 color: {fg_hex};
-                font-weight: normal;
+                font-weight: bold;
                 font-size: {title_font_px}px;
                 line-height: 1.0;
                 text-shadow: none;
