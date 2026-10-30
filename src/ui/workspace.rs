@@ -58,6 +58,7 @@ impl Workspace {
         root_box.set_hexpand(true);
         root_box.set_vexpand(true);
         root_box.add_css_class("fwer-workspace");
+        root_box.add_css_class("fwer-window-frame");
 
         let css_provider = gtk4::CssProvider::new();
         if let Some(display) = gtk4::gdk::Display::default() {
@@ -145,21 +146,24 @@ impl Workspace {
         let sep_w = s.effective_separator_width().round() as i32;
         let frame_bg = s.effective_frame_bg_rgb();
         let frame_border = format_rgb_hex(s.effective_frame_border_rgb());
+        let border_w = s.effective_border_width().round() as i32;
         let opacity = s.effective_terminal_bg_opacity();
         let ui_font_px = s.effective_ui_font_size();
         let font_family = s.effective_font_family();
 
         let css = format!(
-            "window:not(.fwer-prefs-window) {{
-             background-color: transparent;
-          }}
-          terminal, vte-terminal {{
-             background-color: transparent;
-          }}
-          .fwer-prefs-window .fwer-window-frame {{
-             background-color: rgba({}, {}, {}, {:.3});
-             border: 1px solid {frame_border};
-          }}
+           "window:not(.fwer-prefs-window) {{
+                background-color: transparent;
+             }}
+             terminal, vte-terminal {{
+                background-color: transparent;
+             }}
+             .fwer-window-frame {{
+                background-color: rgba({}, {}, {}, {:.3});
+                border: {border_w}px solid {frame_border};
+                padding: 0px; /* GTKテーマ由来の隙間を消去 */
+                margin: 0px;
+             }}
              .fwer-workspace paned > separator,
              .fwer-workspace paned > separator.wide {{
                 background-image: none;
