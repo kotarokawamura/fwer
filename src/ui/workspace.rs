@@ -214,9 +214,13 @@ impl Workspace {
              .fwer-pane-broadcast-source {{
                 border: 2px solid rgb(56, 189, 248);
              }}
-             .fwer-pane-resizing-source {{
+　　　　　　　　.fwer-pane-resizing-source {{
                 border: 2px solid rgb(74, 222, 128);
              }}
+             .fwer-pane-opacity-source {{
+                border: 2px solid rgb(236, 72, 153);
+             }}
+             .fwer-pane-target-hover {{
              .fwer-pane-target-hover {{
                 border: 2px solid rgb(80, 180, 255);
              }}
@@ -327,6 +331,7 @@ impl Workspace {
                         self.refresh_all_panes();
                         self.focus_active_pane();
                     }
+
                     InteractionMode::SelectingBroadcast(src_id) => {
                         if src_id == tile_id {
                             self.tree.borrow_mut().leave_broadcast_group(src_id);
@@ -382,6 +387,29 @@ impl Workspace {
 
     fn handle_special_mode_key(self: &Rc<Self>, tile_id: TileId, key: SpecialModeKey) {
         match self.mode.get() {
+            InteractionMode::AdjustingOpacity(_) => match key {
+                SpecialModeKey::Move(dir) => {
+                    let mut current_settings = self.settings.borrow().clone();
+                    let step = 0.05;
+                    let current_opacity = current_settings.terminal_bg_opacity;
+                    let next_opacity = match dir {
+                        Direction::Up | Direction::Right => (current_opacity + step).min(1.0),
+                        Direction::Down | Direction::Left => (current_opacity - step).max(0.0),
+                    };
+                    current_settings.terminal_bg_opacity = next_opacity;
+                    self.apply_settings(current_settings);
+                    self.focus_active_pane();
+                }
+                SpecialModeKey::Confirm
+                | SpecialModeKey::KeepSelecting
+                | SpecialModeKey::Cancel => {
+                    self.mode.set(InteractionMode::Normal);
+                    self.kb_target_pane.set(None);
+                    let _ = self.settings().save();
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+            },
             InteractionMode::ResizingPane(src_id) => match key {
                 SpecialModeKey::Move(dir) => {
                     if self
@@ -739,6 +767,18 @@ impl Workspace {
                 };
                 self.mode.set(next);
                 self.kb_target_pane.set(Some(tile_id));
+                self.refresh_all_panes();
+                self.focus_active_pane();
+            }
+            PaneShortcutAction::ToggleOpacityMode => {
+                self.commit_any_active_title_edit();
+                let next = if matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_)) {
+                    InteractionMode::Normal
+                } else {
+                    InteractionMode::AdjustingOpacity(tile_id)
+                };
+                self.mode.set(next);
+                self.kb_target_pane.set(None);
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }

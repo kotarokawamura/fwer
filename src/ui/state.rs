@@ -14,6 +14,7 @@ pub enum InteractionMode {
     MovingPane(TileId),
     SelectingBroadcast(TileId),
     ResizingPane(TileId),
+    AdjustingOpacity(TileId),
     EditingTitle(TileId),
     BlockedByModal,
 }

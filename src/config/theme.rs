@@ -68,17 +68,18 @@ pub struct ShortcutSettings {
     pub toggle_resize_mode: String,
     #[serde(default = "default_toggle_broadcast_mode")]
     pub toggle_broadcast_mode: String,
+    #[serde(default = "default_toggle_opacity_mode")]
+    pub toggle_opacity_mode: String,
 }
 
-fn default_toggle_move_mode() -> String {
-    "Ctrl+Shift+M".to_string()
-}
+fn default_toggle_move_mode() -> String { "Ctrl+Shift+M".to_string() }
 fn default_toggle_resize_mode() -> String {
     "Ctrl+Shift+R".to_string()
 }
 fn default_toggle_broadcast_mode() -> String {
     "Ctrl+Shift+B".to_string()
 }
+fn default_toggle_opacity_mode() -> String { "Ctrl+Shift+A".to_string() }
 
 impl Default for ShortcutSettings {
     fn default() -> Self {
@@ -101,6 +102,7 @@ impl Default for ShortcutSettings {
             toggle_move_mode: default_toggle_move_mode(),
             toggle_resize_mode: default_toggle_resize_mode(),
             toggle_broadcast_mode: default_toggle_broadcast_mode(),
+            toggle_opacity_mode: default_toggle_opacity_mode(),
         }
     }
 }

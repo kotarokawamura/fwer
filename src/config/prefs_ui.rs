@@ -1408,7 +1408,7 @@ impl PreferencesWindow {
         let s = self.workspace.settings();
         let defaults = ShortcutSettings::default();
 
-        let slots: [(&str, &str, &str, &str); 18] = [
+        let slots: [(&str, &str, &str, &str); 19] = [
             ("copy", "Copy", &s.shortcuts.copy, &defaults.copy),
             ("paste", "Paste", &s.shortcuts.paste, &defaults.paste),
             (
@@ -1496,6 +1496,12 @@ impl PreferencesWindow {
                 "Broadcast Mode",
                 &s.shortcuts.toggle_broadcast_mode,
                 &defaults.toggle_broadcast_mode,
+            ),
+            (
+                "toggle_opacity_mode",
+                "Opacity Adjust Mode",
+                &s.shortcuts.toggle_opacity_mode,
+                &defaults.toggle_opacity_mode,
             ),
         ];
 
@@ -1749,6 +1755,7 @@ fn get_shortcut_slot_value(sc: &ShortcutSettings, slot_key: &str) -> String {
         "toggle_move_mode" => sc.toggle_move_mode.clone(),
         "toggle_resize_mode" => sc.toggle_resize_mode.clone(),
         "toggle_broadcast_mode" => sc.toggle_broadcast_mode.clone(),
+        "toggle_opacity_mode" => sc.toggle_opacity_mode.clone(),
         _ => String::new(),
     }
 }
@@ -1790,6 +1797,7 @@ fn apply_shortcut_slot_update(
         "toggle_move_mode" => update(&mut sc.toggle_move_mode),
         "toggle_resize_mode" => update(&mut sc.toggle_resize_mode),
         "toggle_broadcast_mode" => update(&mut sc.toggle_broadcast_mode),
+        "toggle_opacity_mode" => update(&mut sc.toggle_opacity_mode),
         _ => {}
     }
 }
