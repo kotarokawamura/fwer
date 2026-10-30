@@ -8,6 +8,7 @@
 #![allow(deprecated)]
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -28,10 +29,19 @@ use crate::i18n::{
 use crate::ui::workspace::Workspace;
 use crate::vte::RgbColor;
 
+const MAX_COMBO_FONTS: usize = 200;
+
 #[derive(Debug, Clone)]
 struct RecordingTarget {
     slot_key: String,
     append: bool,
+}
+
+#[derive(Clone)]
+struct ShortcutRowWidgets {
+    entry: gtk4::Entry,
+    chips_box: gtk4::Box,
+    updating: Rc<Cell<bool>>,
 }
 
 pub struct PreferencesWindow {
@@ -43,7 +53,10 @@ pub struct PreferencesWindow {
     save_pending: Cell<bool>,
     recording: Rc<RefCell<Option<RecordingTarget>>>,
     recording_status_label: gtk4::Label,
+    shortcut_rows: RefCell<HashMap<String, ShortcutRowWidgets>>,
     discovered_fonts: Rc<RefCell<Vec<PathBuf>>>,
+    fonts_loaded: Cell<bool>,
+    font_tab_populated: Cell<bool>,
     catalog_window: RefCell<Option<gtk4::Window>>,
     on_settings_applied: Rc<dyn Fn(&ThemeSettings)>,
 }
@@ -80,7 +93,7 @@ impl PreferencesWindow {
         recording_status_label.add_css_class("fwer-record-banner");
         recording_status_label.set_visible(false);
 
-        let discovered_fonts = Rc::new(RefCell::new(cached_system_fonts(false)));
+        let discovered_fonts = Rc::new(RefCell::new(Vec::new()));
 
         let prefs = Rc::new(Self {
             window,
@@ -91,7 +104,10 @@ impl PreferencesWindow {
             save_pending: Cell::new(false),
             recording,
             recording_status_label,
+            shortcut_rows: RefCell::new(HashMap::new()),
             discovered_fonts,
+            fonts_loaded: Cell::new(false),
+            font_tab_populated: Cell::new(false),
             catalog_window: RefCell::new(None),
             on_settings_applied: Rc::new(on_settings_applied),
         });
@@ -99,6 +115,13 @@ impl PreferencesWindow {
         prefs.build_ui();
         prefs.setup_window_controllers();
         prefs
+    }
+
+    fn ensure_fonts_loaded(&self) {
+        if !self.fonts_loaded.get() {
+            *self.discovered_fonts.borrow_mut() = cached_system_fonts(false);
+            self.fonts_loaded.set(true);
+        }
     }
 
     pub fn present(self: &Rc<Self>) {
@@ -146,7 +169,6 @@ impl PreferencesWindow {
         outer.set_hexpand(true);
         outer.set_vexpand(true);
 
-        // Fixed header with 4 tab buttons + collapse button
         let header_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
         header_bar.set_margin_top(8);
         header_bar.set_margin_bottom(8);
@@ -162,10 +184,15 @@ impl PreferencesWindow {
 
         for (id, title) in tabs {
             let btn = gtk4::Button::with_label(&title);
-            let stack_clone = self.stack.clone();
+            let p_weak = Rc::downgrade(self);
             let tab_id = id.to_string();
             btn.connect_clicked(move |_| {
-                stack_clone.set_visible_child_name(&tab_id);
+                if let Some(p) = p_weak.upgrade() {
+                    if tab_id == "font" && !p.font_tab_populated.get() {
+                        p.populate_font_tab_now();
+                    }
+                    p.stack.set_visible_child_name(&tab_id);
+                }
             });
             header_bar.append(&btn);
         }
@@ -206,7 +233,6 @@ impl PreferencesWindow {
         body_box.append(&scrolled);
         body_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-        // Fixed footer: Restore Defaults, Save Current Layout, Load Saved Layout, Close (Section 11.1)
         let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         footer.set_margin_top(8);
         footer.set_margin_bottom(8);
@@ -272,7 +298,6 @@ impl PreferencesWindow {
     }
 
     fn setup_window_controllers(self: &Rc<Self>) {
-        // Block background workspace while cursor is inside Preferences or while focused
         {
             let ws_clone = Rc::clone(&self.workspace);
             self.window.connect_close_request(move |win| {
@@ -283,12 +308,12 @@ impl PreferencesWindow {
         }
         {
             let ws_clone = Rc::clone(&self.workspace);
-            self.window.connect_notify_local(Some("is-active"), move |win, _| {
-                ws_clone.set_modal_blocked(win.is_active());
-            });
+            self.window
+                .connect_notify_local(Some("is-active"), move |win, _| {
+                    ws_clone.set_modal_blocked(win.is_active());
+                });
         }
 
-        // Key controller for shortcut recording & close_preferences / toggle_collapse_preferences
         let key_ctrl = gtk4::EventControllerKey::new();
         key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let p_weak = Rc::downgrade(self);
@@ -315,7 +340,8 @@ impl PreferencesWindow {
                         target.append,
                     );
                     p.notify_changed(settings);
-                    p.rebuild_tabs();
+                    // タブを再構築せず、該当行のUIだけを直接更新（スクロール位置が飛ばない）
+                    p.refresh_shortcut_row_ui(&target.slot_key);
                     return glib::Propagation::Stop;
                 }
                 return glib::Propagation::Stop;
@@ -348,7 +374,13 @@ impl PreferencesWindow {
         }
 
         let tab1 = self.build_titlebar_and_frame_tab();
-        let tab2 = self.build_font_tab();
+        let tab2 = if cur_tab == "font" {
+            self.font_tab_populated.set(true);
+            self.build_font_tab()
+        } else {
+            self.font_tab_populated.set(false);
+            gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast()
+        };
         let tab3 = self.build_shortcuts_tab();
         let tab4 = self.build_language_tab();
 
@@ -358,6 +390,66 @@ impl PreferencesWindow {
         self.stack.add_named(&tab4, Some("language"));
 
         self.stack.set_visible_child_name(&cur_tab);
+    }
+
+    fn populate_font_tab_now(self: &Rc<Self>) {
+        if let Some(old_font_tab) = self.stack.child_by_name("font") {
+            self.stack.remove(&old_font_tab);
+        }
+        let tab2 = self.build_font_tab();
+        self.stack.add_named(&tab2, Some("font"));
+        self.font_tab_populated.set(true);
+    }
+
+    fn refresh_shortcut_row_ui(self: &Rc<Self>, slot_key: &str) {
+        let val = get_shortcut_slot_value(&self.workspace.settings().shortcuts, slot_key);
+        let row_opt = self.shortcut_rows.borrow().get(slot_key).cloned();
+        if let Some(row_w) = row_opt {
+            if row_w.entry.text() != val {
+                row_w.updating.set(true);
+                row_w.entry.set_text(&val);
+                row_w.updating.set(false);
+            }
+            self.rebuild_row_chips(&row_w.chips_box, slot_key, &val);
+        }
+    }
+
+    fn refresh_all_shortcut_rows_ui(self: &Rc<Self>) {
+        let keys: Vec<String> = self.shortcut_rows.borrow().keys().cloned().collect();
+        for k in keys {
+            self.refresh_shortcut_row_ui(&k);
+        }
+    }
+
+    fn rebuild_row_chips(self: &Rc<Self>, chips_box: &gtk4::Box, slot_key: &str, current_val: &str) {
+        while let Some(child) = chips_box.first_child() {
+            chips_box.remove(&child);
+        }
+        let bindings = split_shortcut_bindings(current_val);
+        if bindings.len() > 1 {
+            for (idx, b_str) in bindings.iter().enumerate() {
+                let chip_btn = gtk4::Button::with_label(&format!("{} ✕", b_str));
+                let p_weak = Rc::downgrade(self);
+                let key_owned = slot_key.to_string();
+                let all_bindings = bindings.clone();
+                chip_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let remaining: Vec<String> = all_bindings
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| *i != idx)
+                            .map(|(_, v)| v.clone())
+                            .collect();
+                        let joined = remaining.join(" / ");
+                        let mut st = p.workspace.settings();
+                        apply_shortcut_slot_update(&mut st.shortcuts, &key_owned, &joined, false);
+                        p.notify_changed(st);
+                        p.refresh_shortcut_row_ui(&key_owned);
+                    }
+                });
+                chips_box.append(&chip_btn);
+            }
+        }
     }
 
     fn build_titlebar_and_frame_tab(self: &Rc<Self>) -> gtk4::Widget {
@@ -569,37 +661,35 @@ impl PreferencesWindow {
         }
 
         {
-            {
-                let entry_clone = entry.clone();
-                let status_clone = status_lbl.clone();
-                let upd = Rc::clone(&updating);
-                let p_weak = Rc::downgrade(self);
-                let setter_clone = Rc::clone(&setter);
+            let entry_clone = entry.clone();
+            let status_clone = status_lbl.clone();
+            let upd = Rc::clone(&updating);
+            let p_weak = Rc::downgrade(self);
+            let setter_clone = Rc::clone(&setter);
 
-                color_btn.connect_rgba_notify(move |btn| {
-                    if upd.get() {
-                        return;
-                    }
-                    let rgba = btn.rgba();
-                    let r = (rgba.red() * 255.0).round().clamp(0.0, 255.0) as u8;
-                    let g = (rgba.green() * 255.0).round().clamp(0.0, 255.0) as u8;
-                    let b = (rgba.blue() * 255.0).round().clamp(0.0, 255.0) as u8;
-                    let hex = format_rgb_hex(RgbColor(r, g, b));
+            color_btn.connect_rgba_notify(move |btn| {
+                if upd.get() {
+                    return;
+                }
+                let rgba = btn.rgba();
+                let r = (rgba.red() * 255.0).round().clamp(0.0, 255.0) as u8;
+                let g = (rgba.green() * 255.0).round().clamp(0.0, 255.0) as u8;
+                let b = (rgba.blue() * 255.0).round().clamp(0.0, 255.0) as u8;
+                let hex = format_rgb_hex(RgbColor(r, g, b));
 
-                    //Prevent infinite loop
-                    upd.set(true);
-                    entry_clone.set_text(&hex);
-                    upd.set(false);
+                upd.set(true);
+                entry_clone.set_text(&hex);
+                upd.set(false);
 
-                    status_clone.set_text(&color_status_text(&hex));
+                status_clone.set_text(&color_status_text(&hex));
 
-                    if let Some(p) = p_weak.upgrade() {
-                        let mut st = p.workspace.settings();
-                        setter_clone(&mut st, hex);
-                        p.notify_changed(st);
-                    }
-                });
-            }        }
+                if let Some(p) = p_weak.upgrade() {
+                    let mut st = p.workspace.settings();
+                    setter_clone(&mut st, hex);
+                    p.notify_changed(st);
+                }
+            });
+        }
 
         {
             let entry_clone = entry.clone();
@@ -718,9 +808,7 @@ impl PreferencesWindow {
             let disabled_lbl = gtk4::Label::new(Some(&tr("Disabled (--fps not specified)")));
             disabled_lbl.set_sensitive(false);
             row.append(&disabled_lbl);
-            row.set_tooltip_text(Some(&tr(
-                "Disabled (--fps not specified)",
-            )));
+            row.set_tooltip_text(Some(&tr("Disabled (--fps not specified)")));
         }
 
         container.append(&row);
@@ -728,10 +816,11 @@ impl PreferencesWindow {
     }
 
     fn build_font_tab(self: &Rc<Self>) -> gtk4::Widget {
+        self.ensure_fonts_loaded();
+
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
         let s = self.workspace.settings();
 
-        // Filter & Rescan
         let filter_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let filter_lbl = gtk4::Label::new(Some(&tr("Font Filter Keyword")));
         filter_lbl.set_width_chars(22);
@@ -744,20 +833,16 @@ impl PreferencesWindow {
         filter_row.append(&rescan_btn);
         vbox.append(&filter_row);
 
-        // Prominent Font Sample Catalog button (matching termin)
         let catalog_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let catalog_spacer = gtk4::Label::new(None);
         catalog_spacer.set_width_chars(22);
-        let catalog_btn = gtk4::Button::with_label(&format!(
-            "🗚 {}",
-            tr("Open Font Sample Catalog...")
-        ));
+        let catalog_btn =
+            gtk4::Button::with_label(&format!("🗚 {}", tr("Open Font Sample Catalog...")));
         catalog_btn.set_hexpand(true);
         catalog_row.append(&catalog_spacer);
         catalog_row.append(&catalog_btn);
         vbox.append(&catalog_row);
 
-        // System Font combo + path entry
         let combo_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let combo_lbl = gtk4::Label::new(Some(&tr("System Font")));
         combo_lbl.set_width_chars(22);
@@ -765,6 +850,8 @@ impl PreferencesWindow {
         #[allow(deprecated)]
         let font_combo = gtk4::ComboBoxText::new();
         font_combo.set_hexpand(true);
+        // コンボボックス上でスワイプ（ホイールスクロール）しても選択フォントが変わらないようにブロック
+        disable_combo_scroll(&font_combo);
         combo_row.append(&combo_lbl);
         combo_row.append(&font_combo);
         vbox.append(&combo_row);
@@ -790,14 +877,21 @@ impl PreferencesWindow {
             });
         }
 
-        // Populate combo helper
+        let combo_populating = Rc::new(Cell::new(false));
+
+        // コンボボックスへの追加を最大 MAX_COMBO_FONTS (200件) に制限して高速化
         let populate_combo = {
             let fonts_rc = Rc::clone(&self.discovered_fonts);
             let combo_clone = font_combo.clone();
+            let pop_flag = Rc::clone(&combo_populating);
             move |kw: &str, current_path: &str| {
+                pop_flag.set(true);
                 #[allow(deprecated)]
                 combo_clone.remove_all();
                 let kw_lower = kw.trim().to_ascii_lowercase();
+                let mut count = 0usize;
+                let mut current_added = current_path.trim().is_empty();
+
                 for path in fonts_rc.borrow().iter() {
                     let p_str = path.to_string_lossy();
                     if !kw_lower.is_empty() && !p_str.to_ascii_lowercase().contains(&kw_lower) {
@@ -809,14 +903,34 @@ impl PreferencesWindow {
                         .unwrap_or(&p_str);
                     #[allow(deprecated)]
                     combo_clone.append(Some(&p_str), label);
+                    if p_str == current_path {
+                        current_added = true;
+                    }
+                    count += 1;
+                    if count >= MAX_COMBO_FONTS {
+                        break;
+                    }
                 }
-                #[allow(deprecated)]
-                let _ = combo_clone.set_active_id(Some(current_path));
+
+                // 現在選択中のフォントが上限200件の外にある場合でもリストに追加して選択状態を維持する
+                if !current_added && Path::new(current_path).exists() {
+                    let label = Path::new(current_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(current_path);
+                    #[allow(deprecated)]
+                    combo_clone.append(Some(current_path), label);
+                }
+
+                if !current_path.trim().is_empty() {
+                    #[allow(deprecated)]
+                    let _ = combo_clone.set_active_id(Some(current_path));
+                }
+                pop_flag.set(false);
             }
         };
         populate_combo("", &s.font_path);
 
-        // Live preview frame using Pango AttrList instead of CssProvider
         let preview_frame = gtk4::Frame::new(Some(&tr("Font Preview")));
         let preview_label = gtk4::Label::new(Some(
             "ASCII: ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 !@#$%^&*()\n日本語: 日本語テキストの表示テスト（コピー・ペースト・ペイン分割）",
@@ -863,7 +977,11 @@ impl PreferencesWindow {
         }
         {
             let pe = path_entry.clone();
+            let pop_flag = Rc::clone(&combo_populating);
             font_combo.connect_changed(move |c| {
+                if pop_flag.get() {
+                    return;
+                }
                 #[allow(deprecated)]
                 if let Some(id) = c.active_id()
                     && pe.text() != id
@@ -880,9 +998,7 @@ impl PreferencesWindow {
                 let trimmed = txt.trim();
                 let ready =
                     trimmed.is_empty() || !trimmed.contains('/') || Path::new(trimmed).is_file();
-                if ready
-                    && let Some(p) = p_weak.upgrade()
-                {
+                if ready && let Some(p) = p_weak.upgrade() {
                     let mut st = p.workspace.settings();
                     st.font_path = txt;
                     upd_prev(&st);
@@ -891,7 +1007,6 @@ impl PreferencesWindow {
             });
         }
 
-        // UI & Terminal Font Sizes (Section 11.2.2)
         self.add_slider_row(
             &vbox,
             &tr("UI / Menu Font Size (px)"),
@@ -925,6 +1040,8 @@ impl PreferencesWindow {
     }
 
     fn open_font_sample_catalog(self: &Rc<Self>, path_entry_to_sync: gtk4::Entry) {
+        self.ensure_fonts_loaded();
+
         if let Some(existing) = self.catalog_window.borrow().as_ref() {
             existing.present();
             return;
@@ -952,7 +1069,6 @@ impl PreferencesWindow {
         desc_lbl.add_css_class("dim-label");
         root.append(&desc_lbl);
 
-        // Category toggle buttons row (matching termin: All Fonts / Monospace / Japanese / CJK)
         let cat_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
         let cat_lbl = gtk4::Label::new(Some(&tr("Category:")));
         cat_lbl.set_width_chars(18);
@@ -970,7 +1086,6 @@ impl PreferencesWindow {
         cat_row.append(&btn_cjk);
         root.append(&cat_row);
 
-        // Filter System Fonts + Rescan button row
         let filter_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let filter_lbl = gtk4::Label::new(Some(&tr("Font Filter Keyword")));
         filter_lbl.set_width_chars(18);
@@ -984,18 +1099,19 @@ impl PreferencesWindow {
         filter_row.append(&rescan_btn);
         root.append(&filter_row);
 
-        // Sample Text row with two editable entries (ASCII + CJK, matching termin)
         let sample_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let sample_lbl = gtk4::Label::new(Some(&tr("Sample Text")));
         sample_lbl.set_width_chars(18);
         sample_lbl.set_halign(gtk4::Align::Start);
         let sample_ascii_entry = gtk4::Entry::new();
-        sample_ascii_entry
-            .set_text("ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 !@#$%^&*()");
+        sample_ascii_entry.set_text(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 !@#$%^&*()",
+        );
         sample_ascii_entry.set_hexpand(true);
         let sample_cjk_entry = gtk4::Entry::new();
-        sample_cjk_entry
-            .set_text("日本語サンプル: 吾輩は猫である。名前はまだ無い。 (漢字・ひらがな・カタカナ)");
+        sample_cjk_entry.set_text(
+            "日本語サンプル: 吾輩は猫である。名前はまだ無い。 (漢字・ひらがな・カタカナ)",
+        );
         sample_cjk_entry.set_hexpand(true);
         sample_row.append(&sample_lbl);
         sample_row.append(&sample_ascii_entry);
@@ -1018,7 +1134,6 @@ impl PreferencesWindow {
 
         root.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-        // Footer with current selected font path + Close button
         let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let current_font_lbl = gtk4::Label::new(Some(&format!(
             "{}: {}",
@@ -1072,7 +1187,8 @@ impl PreferencesWindow {
                     .upgrade()
                     .map(|p| p.workspace.settings().font_path)
                     .unwrap_or_default();
-                current_font_lbl_c.set_text(&format!("{}: {}", tr("Current Font"), current_selected));
+                current_font_lbl_c
+                    .set_text(&format!("{}: {}", tr("Current Font"), current_selected));
 
                 let all_fonts = fonts_rc.borrow();
                 let total_count = all_fonts.len();
@@ -1121,13 +1237,9 @@ impl PreferencesWindow {
                         "fwer-font-card"
                     });
 
-                    // Header row: Name + [Mono] + [CJK] + Path + Selected / Use This Font button
                     let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                     let name_lbl = gtk4::Label::new(None);
-                    name_lbl.set_markup(&format!(
-                        "<b>{}</b>",
-                        glib::markup_escape_text(font_name)
-                    ));
+                    name_lbl.set_markup(&format!("<b>{}</b>", glib::markup_escape_text(font_name)));
                     name_lbl.set_halign(gtk4::Align::Start);
                     header_row.append(&name_lbl);
 
@@ -1288,6 +1400,8 @@ impl PreferencesWindow {
     }
 
     fn build_shortcuts_tab(self: &Rc<Self>) -> gtk4::Widget {
+        self.shortcut_rows.borrow_mut().clear();
+
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         let s = self.workspace.settings();
         let defaults = ShortcutSettings::default();
@@ -1396,32 +1510,19 @@ impl PreferencesWindow {
             entry.set_hexpand(true);
             row.append(&entry);
 
-            // Individual binding remove buttons `✕`
-            let bindings = split_shortcut_bindings(current_val);
-            if bindings.len() > 1 {
-                for (idx, b_str) in bindings.iter().enumerate() {
-                    let chip_btn = gtk4::Button::with_label(&format!("{} ✕", b_str));
-                    let p_weak = Rc::downgrade(self);
-                    let key_owned = slot_key.to_string();
-                    let all_bindings = bindings.clone();
-                    chip_btn.connect_clicked(move |_| {
-                        if let Some(p) = p_weak.upgrade() {
-                            let remaining: Vec<String> = all_bindings
-                                .iter()
-                                .enumerate()
-                                .filter(|(i, _)| *i != idx)
-                                .map(|(_, v)| v.clone())
-                                .collect();
-                            let joined = remaining.join(" / ");
-                            let mut st = p.workspace.settings();
-                            apply_shortcut_slot_update(&mut st.shortcuts, &key_owned, &joined, false);
-                            p.notify_changed(st);
-                            p.rebuild_tabs();
-                        }
-                    });
-                    row.append(&chip_btn);
-                }
-            }
+            let chips_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            self.rebuild_row_chips(&chips_box, slot_key, current_val);
+            row.append(&chips_box);
+
+            let updating = Rc::new(Cell::new(false));
+            self.shortcut_rows.borrow_mut().insert(
+                slot_key.to_string(),
+                ShortcutRowWidgets {
+                    entry: entry.clone(),
+                    chips_box: chips_box.clone(),
+                    updating: Rc::clone(&updating),
+                },
+            );
 
             let record_btn = gtk4::Button::with_label(&tr("Record"));
             {
@@ -1474,7 +1575,7 @@ impl PreferencesWindow {
                             false,
                         );
                         p.notify_changed(st);
-                        p.rebuild_tabs();
+                        p.refresh_shortcut_row_ui(&key_owned);
                     }
                 });
             }
@@ -1483,16 +1584,18 @@ impl PreferencesWindow {
             {
                 let p_weak = Rc::downgrade(self);
                 let key_owned = slot_key.to_string();
+                let upd = Rc::clone(&updating);
+                let cb_clone = chips_box.clone();
                 entry.connect_changed(move |e| {
+                    if upd.get() {
+                        return;
+                    }
                     if let Some(p) = p_weak.upgrade() {
+                        let txt = e.text().to_string();
                         let mut st = p.workspace.settings();
-                        apply_shortcut_slot_update(
-                            &mut st.shortcuts,
-                            &key_owned,
-                            &e.text(),
-                            false,
-                        );
+                        apply_shortcut_slot_update(&mut st.shortcuts, &key_owned, &txt, false);
                         p.notify_changed(st);
+                        p.rebuild_row_chips(&cb_clone, &key_owned, &txt);
                     }
                 });
             }
@@ -1510,7 +1613,7 @@ impl PreferencesWindow {
                     let mut st = p.workspace.settings();
                     st.shortcuts = ShortcutSettings::default();
                     p.notify_changed(st);
-                    p.rebuild_tabs();
+                    p.refresh_all_shortcut_rows_ui();
                 }
             });
         }
@@ -1537,15 +1640,13 @@ impl PreferencesWindow {
             lang_combo.append(Some("ja"), &tr("日本語 (ja.po)"));
             for (code, path) in discover_po_files() {
                 if code != "en" && code != "ja" {
-                    lang_combo.append(
-                        Some(&code),
-                        &format!("{} ({})", code, path.display()),
-                    );
+                    lang_combo.append(Some(&code), &format!("{} ({})", code, path.display()));
                 }
             }
             let _ = lang_combo.set_active_id(Some(&s.language));
         }
         lang_combo.set_hexpand(true);
+        disable_combo_scroll(&lang_combo);
         lang_row.append(&lang_lbl);
         lang_row.append(&lang_combo);
         vbox.append(&lang_row);
@@ -1608,6 +1709,14 @@ impl PreferencesWindow {
     }
 }
 
+/// ComboBox 上でタッチパッドスワイプやマウスホイールを回した際に選択項目が勝手に変わるのを防ぎます。
+fn disable_combo_scroll(widget: &impl IsA<gtk4::Widget>) {
+    let scroll_ctrl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
+    scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    scroll_ctrl.connect_scroll(|_, _, _| glib::Propagation::Stop);
+    widget.add_controller(scroll_ctrl);
+}
+
 fn color_status_text(raw: &str) -> String {
     if raw.trim().is_empty() {
         tr("Using Default")
@@ -1615,6 +1724,30 @@ fn color_status_text(raw: &str) -> String {
         tr("Applied")
     } else {
         tr("Invalid Color (Fallback to Default)")
+    }
+}
+
+fn get_shortcut_slot_value(sc: &ShortcutSettings, slot_key: &str) -> String {
+    match slot_key {
+        "copy" => sc.copy.clone(),
+        "paste" => sc.paste.clone(),
+        "split_horizontal" => sc.split_horizontal.clone(),
+        "split_vertical" => sc.split_vertical.clone(),
+        "new_tab" => sc.new_tab.clone(),
+        "close_pane" => sc.close_pane.clone(),
+        "focus_next_pane" => sc.focus_next_pane.clone(),
+        "focus_prev_pane" => sc.focus_prev_pane.clone(),
+        "open_preferences" => sc.open_preferences.clone(),
+        "close_preferences" => sc.close_preferences.clone(),
+        "toggle_collapse_preferences" => sc.toggle_collapse_preferences.clone(),
+        "toggle_fullscreen" => sc.toggle_fullscreen.clone(),
+        "zoom_in" => sc.zoom_in.clone(),
+        "zoom_out" => sc.zoom_out.clone(),
+        "zoom_reset" => sc.zoom_reset.clone(),
+        "toggle_move_mode" => sc.toggle_move_mode.clone(),
+        "toggle_resize_mode" => sc.toggle_resize_mode.clone(),
+        "toggle_broadcast_mode" => sc.toggle_broadcast_mode.clone(),
+        _ => String::new(),
     }
 }
 
