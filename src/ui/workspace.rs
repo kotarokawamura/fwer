@@ -150,11 +150,16 @@ impl Workspace {
         let font_family = s.effective_font_family();
 
         let css = format!(
-            ".fwer-window-frame {{
-                background-color: rgba({}, {}, {}, {:.3});
-                border: 1px solid {frame_border};
-             }}
-
+            "window:not(.fwer-prefs-window) {{
+             background-color: transparent;
+          }}
+          terminal, vte-terminal {{
+             background-color: transparent;
+          }}
+          .fwer-prefs-window .fwer-window-frame {{
+             background-color: rgba({}, {}, {}, {:.3});
+             border: 1px solid {frame_border};
+          }}
              .fwer-workspace paned > separator,
              .fwer-workspace paned > separator.wide {{
                 background-image: none;

@@ -77,6 +77,7 @@ impl PreferencesWindow {
             .resizable(true)
             .build();
 
+        window.add_css_class("fwer-prefs-window");
         let stack = gtk4::Stack::new();
         stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         stack.set_hexpand(true);
@@ -1056,6 +1057,7 @@ impl PreferencesWindow {
             .height_request(380)
             .build();
 
+        cat_win.add_css_class("fwer-prefs-window");
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         root.set_margin_top(10);
         root.set_margin_bottom(10);
