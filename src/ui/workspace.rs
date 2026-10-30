@@ -214,13 +214,12 @@ impl Workspace {
              .fwer-pane-broadcast-source {{
                 border: 2px solid rgb(56, 189, 248);
              }}
-　　　　　　　　.fwer-pane-resizing-source {{
+             .fwer-pane-resizing-source {{
                 border: 2px solid rgb(74, 222, 128);
              }}
              .fwer-pane-opacity-source {{
                 border: 2px solid rgb(236, 72, 153);
              }}
-             .fwer-pane-target-hover {{
              .fwer-pane-target-hover {{
                 border: 2px solid rgb(80, 180, 255);
              }}

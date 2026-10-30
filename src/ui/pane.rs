@@ -626,8 +626,6 @@ impl TerminalPaneWidget {
         self.highlight_frame
             .remove_css_class("fwer-pane-target-hover");
         self.highlight_frame
-            .remove_css_class("fwer-pane-resizing-source");
-        self.highlight_frame
             .remove_css_class("fwer-pane-opacity-source");
 
         if is_move_source {
