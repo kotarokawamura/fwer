@@ -320,7 +320,7 @@ impl TerminalPaneWidget {
                             keep_selecting,
                         });
                     }
-                    _ if mode.toggle_shortcut(& pane.settings_cache.borrow().shortcuts).is_some() => {
+                    _ if mode.is_special_mode() => {
                         gesture.set_state(gtk4::EventSequenceState::Claimed);
                         cb(PaneEvent::CancelSpecialMode);
                     }
@@ -547,7 +547,8 @@ impl TerminalPaneWidget {
         for &cls in InteractionMode::ALL_SOURCE_CSS_CLASSES {
             self.highlight_frame.remove_css_class(cls);
         }
-        self.highlight_frame.remove_css_class("fwer-pane-target-hover");
+        self.highlight_frame
+            .remove_css_class("fwer-pane-target-hover");
 
         if let Some(cls) = mode.source_css_class(self.tile_id) {
             self.highlight_frame.add_css_class(cls);
