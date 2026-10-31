@@ -166,17 +166,17 @@ define_shortcuts! {
     close_pane => { label: "Close Pane", default: "Ctrl+Shift+W", action: ClosePane },
     focus_next_pane => { label: "Focus Next Pane", default: "Ctrl+Tab", action: FocusNextPane },
     focus_prev_pane => { label: "Focus Prev Pane", default: "Ctrl+Shift+Tab", action: FocusPrevPane },
-    open_preferences => { label: "Open Preferences", default: "Ctrl+,", action: OpenPreferences },
+    open_preferences => { label: "Open Preferences", default: "Ctrl+Shit+S", action: OpenPreferences },
     close_preferences => { label: "Close Preferences", default: "Ctrl+Shift+W" },
     toggle_collapse_preferences => { label: "Toggle Collapse Preferences", default: "Ctrl+Shift+M" },
     toggle_fullscreen => { label: "Toggle Fullscreen", default: "F11", action: ToggleFullscreen },
-    zoom_in => { label: "Zoom In", default: "Ctrl+=", action: ZoomIn },
-    zoom_out => { label: "Zoom Out", default: "Ctrl+-", action: ZoomOut },
-    zoom_reset => { label: "Zoom Reset", default: "Ctrl+0", action: ZoomReset },
+    zoom_in => { label: "Zoom In", default: "Super+=", action: ZoomIn },
+    zoom_out => { label: "Zoom Out", default: "Super+-", action: ZoomOut },
+    zoom_reset => { label: "Zoom Reset", default: "Super+0", action: ZoomReset },
     toggle_move_mode => { label: "Pane Move Mode", default: "Ctrl+Shift+M", action: ToggleMoveMode },
     toggle_resize_mode => { label: "Split Resize Mode", default: "Ctrl+Shift+R", action: ToggleResizeMode },
     toggle_broadcast_mode => { label: "Broadcast Mode", default: "Ctrl+Shift+B", action: ToggleBroadcastMode },
-    toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+A", action: ToggleOpacityMode },
+    toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+0", action: ToggleOpacityMode },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
