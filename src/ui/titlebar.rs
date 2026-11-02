@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use gtk4::gdk;
 use gtk4::glib;
+use gtk4::graphene;
 use gtk4::prelude::*;
 
 use crate::config::theme::{ThemeSettings, broadcast_group_title_bg, format_rgb_hex};
@@ -36,7 +37,10 @@ pub enum TitlebarEvent {
 }
 
 /// Computes the effective `(bg, fg)` colors for a pane's titlebar given its context and theme.
-pub fn resolve_titlebar_colors(ctx: &PaneContext, settings: &ThemeSettings) -> (RgbColor, RgbColor) {
+pub fn resolve_titlebar_colors(
+    ctx: &PaneContext,
+    settings: &ThemeSettings,
+) -> (RgbColor, RgbColor) {
     let fg = if ctx.is_active {
         settings.effective_title_active_fg()
     } else {
@@ -73,9 +77,15 @@ pub fn darken_rgb(c: RgbColor, delta: u8) -> RgbColor {
 pub fn blend_rgb(a: RgbColor, b: RgbColor, t: f32) -> RgbColor {
     let t = t.clamp(0.0, 1.0);
     let inv = 1.0 - t;
-    let r = (a.0 as f32 * inv + b.0 as f32 * t).round().clamp(0.0, 255.0) as u8;
-    let g = (a.1 as f32 * inv + b.1 as f32 * t).round().clamp(0.0, 255.0) as u8;
-    let bl = (a.2 as f32 * inv + b.2 as f32 * t).round().clamp(0.0, 255.0) as u8;
+    let r = (a.0 as f32 * inv + b.0 as f32 * t)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let g = (a.1 as f32 * inv + b.1 as f32 * t)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let bl = (a.2 as f32 * inv + b.2 as f32 * t)
+        .round()
+        .clamp(0.0, 255.0) as u8;
     RgbColor(r, g, bl)
 }
 
@@ -122,7 +132,25 @@ impl Drop for TitlebarWidget {
         }
     }
 }
-
+fn create_tb_button(
+    label: &str,
+    css_class: &str,
+    tooltip: &str,
+    on_event: &Rc<dyn Fn(TitlebarEvent)>,
+    event: TitlebarEvent,
+) -> gtk4::Button {
+    let btn = gtk4::Button::with_label(label);
+    btn.add_css_class("fwer-tb-btn");
+    btn.add_css_class(css_class);
+    btn.set_valign(gtk4::Align::Center);
+    btn.set_focusable(false);
+    btn.set_tooltip_text(Some(tooltip));
+    let cb = Rc::clone(on_event);
+    btn.connect_clicked(move |_| {
+        cb(event.clone());
+    });
+    btn
+}
 impl TitlebarWidget {
     pub fn new<F>(tile_id: TileId, initial_title: &str, on_event: F) -> Rc<Self>
     where
@@ -223,62 +251,37 @@ impl TitlebarWidget {
         right_box.set_margin_end(4);
         right_box.set_valign(gtk4::Align::Center);
 
-        let prefs_btn = gtk4::Button::with_label("⚙");
-        prefs_btn.add_css_class("fwer-tb-btn");
-        prefs_btn.add_css_class("fwer-tb-btn-prefs");
-        prefs_btn.set_valign(gtk4::Align::Center);
-        prefs_btn.set_focusable(false);
-        prefs_btn.set_tooltip_text(Some("Preferences"));
-        {
-            let cb = Rc::clone(&on_event);
-            prefs_btn.connect_clicked(move |_| {
-                cb(TitlebarEvent::OpenPreferences);
-            });
-        }
+        let add_btn = |label: &str, css: &str, tooltip: &str, ev: TitlebarEvent| {
+            let btn = create_tb_button(label, css, tooltip, &on_event, ev);
+            right_box.append(&btn);
+            btn
+        };
 
-        let min_btn = gtk4::Button::with_label("—");
-        min_btn.add_css_class("fwer-tb-btn");
-        min_btn.add_css_class("fwer-tb-btn-min");
-        min_btn.set_valign(gtk4::Align::Center);
-        min_btn.set_focusable(false);
-        min_btn.set_tooltip_text(Some("Minimize Window"));
-        {
-            let cb = Rc::clone(&on_event);
-            min_btn.connect_clicked(move |_| {
-                cb(TitlebarEvent::MinimizeWindow);
-            });
-        }
+        add_btn(
+            "⚙",
+            "fwer-tb-btn-prefs",
+            "Preferences",
+            TitlebarEvent::OpenPreferences,
+        );
+        let min_btn = add_btn(
+            "—",
+            "fwer-tb-btn-min",
+            "Minimize Window",
+            TitlebarEvent::MinimizeWindow,
+        );
+        let max_btn = add_btn(
+            "□",
+            "fwer-tb-btn-max",
+            "Maximize / Restore Window",
+            TitlebarEvent::ToggleMaximizeWindow,
+        );
+        add_btn(
+            "×",
+            "fwer-tb-btn-close",
+            "Close Pane",
+            TitlebarEvent::ClosePane(tile_id),
+        );
 
-        let max_btn = gtk4::Button::with_label("□");
-        max_btn.add_css_class("fwer-tb-btn");
-        max_btn.add_css_class("fwer-tb-btn-max");
-        max_btn.set_valign(gtk4::Align::Center);
-        max_btn.set_focusable(false);
-        max_btn.set_tooltip_text(Some("Maximize / Restore Window"));
-        {
-            let cb = Rc::clone(&on_event);
-            max_btn.connect_clicked(move |_| {
-                cb(TitlebarEvent::ToggleMaximizeWindow);
-            });
-        }
-
-        let close_btn = gtk4::Button::with_label("×");
-        close_btn.add_css_class("fwer-tb-btn");
-        close_btn.add_css_class("fwer-tb-btn-close");
-        close_btn.set_valign(gtk4::Align::Center);
-        close_btn.set_focusable(false);
-        close_btn.set_tooltip_text(Some("Close Pane"));
-        {
-            let cb = Rc::clone(&on_event);
-            close_btn.connect_clicked(move |_| {
-                cb(TitlebarEvent::ClosePane(tile_id));
-            });
-        }
-
-        right_box.append(&prefs_btn);
-        right_box.append(&min_btn);
-        right_box.append(&max_btn);
-        right_box.append(&close_btn);
         root.set_end_widget(Some(&right_box));
 
         let current_title = Rc::new(RefCell::new(initial_title.to_string()));
@@ -306,7 +309,8 @@ impl TitlebarWidget {
     }
 
     fn setup_interactions(self: &Rc<Self>, on_event: Rc<dyn Fn(TitlebarEvent)>) {
-        // Left-click / double-click / drag on the titlebar background -> focus, maximize toggle, or window move
+        // Left-click / double-click / drag on the titlebar background
+        //                        -> focus, maximize toggle, or window move
         {
             let click_bg = gtk4::GestureClick::new();
             click_bg.set_button(1);
@@ -318,7 +322,8 @@ impl TitlebarWidget {
                 };
                 if w.is_editing.get() {
                     if let Some(entry_bounds) = w.title_entry.compute_bounds(&w.root)
-                        && entry_bounds.contains_point(&gtk4::graphene::Point::new(x as f32, y as f32))
+                        && entry_bounds
+                            .contains_point(&gtk4::graphene::Point::new(x as f32, y as f32))
                     {
                         return;
                     }
@@ -333,10 +338,10 @@ impl TitlebarWidget {
                 if let Some(bounds) = w.title_label.compute_bounds(&w.root) {
                     if bounds.contains_point(&gtk4::graphene::Point::new(x as f32, y as f32)) {
                         if n_press == 1 {
-                            // 1回目のクリック時はペインにフォーカスを当てるだけ
+                            //The first click only focuses the pane.
                             cb(TitlebarEvent::FocusPane(w.tile_id));
                         } else if n_press == 2 {
-                            // 2回目のクリック時は FocusPane を呼ばずに編集モードへ入る
+                            //The second click, enter edit mode.
                             gesture.set_state(gtk4::EventSequenceState::Claimed);
                             w.begin_inline_edit();
                             cb(TitlebarEvent::StartEditingTitle(w.tile_id));
@@ -345,7 +350,6 @@ impl TitlebarWidget {
                     }
                 }
 
-                // --- ここから下（title_label 以外の場所）は既存のまま ---
                 cb(TitlebarEvent::FocusPane(w.tile_id));
 
                 if n_press == 2 {
@@ -375,21 +379,19 @@ impl TitlebarWidget {
                     if let Some(native) = w.root.native() {
                         if let Some(surface) = native.surface() {
                             if let Ok(toplevel) = surface.downcast::<gdk::Toplevel>() {
-                                #[allow(deprecated)]
                                 let (nx, ny) = w
                                     .root
-                                    .translate_coordinates(&native, start_x, start_y)
+                                    .compute_point(
+                                        &native,
+                                        &graphene::Point::new(start_x as f32, start_y as f32),
+                                    )
+                                    .map(|p| (p.x() as f64, p.y() as f64))
                                     .unwrap_or((start_x, start_y));
+
                                 if let Some(device) = gesture.device() {
                                     let timestamp = gesture.current_event_time();
                                     gesture.reset();
-                                    toplevel.begin_move(
-                                        &device,
-                                        1,
-                                        nx,
-                                        ny,
-                                        timestamp,
-                                    );
+                                    toplevel.begin_move(&device, 1, nx, ny, timestamp);
                                 }
                             }
                         }

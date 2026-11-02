@@ -269,7 +269,7 @@ fn main() {
 
     if cli.debug_level >= 1 {
         eprintln!(
-            "[termin][debug] Starting with CLI options: {:?}, mode: {:?}",
+            "[fwer][debug] Starting with CLI options: {:?}, mode: {:?}",
             cli,
             cli.resolve_poll_mode()
         );
