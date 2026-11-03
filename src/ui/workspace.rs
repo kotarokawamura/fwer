@@ -13,7 +13,9 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::config::layout_preset::LayoutNode;
+use crate::config::layout_preset::{
+    LayoutNode, PanePresetConfig, PresetStore, WorkspacePreset, expand_tilde_path,
+};
 use crate::config::theme::{ThemeSettings, format_rgb_hex};
 use crate::menus::MenuManager;
 use crate::menus::renderer::show_context_menu_popover;
@@ -94,11 +96,17 @@ impl Workspace {
             on_window_action: RefCell::new(Some(Box::new(on_window_action))),
         });
 
-        ws.update_global_css();
-        ws.spawn_and_register_pane(first_id, &default_title, None, startup_command.as_deref());
-        ws.rebuild_gtk_tree();
-        ws.refresh_all_panes();
-        ws.focus_active_pane();
+        if startup_command.is_none()
+            && let Some(startup_preset) = PresetStore::load().startup_preset().cloned()
+        {
+            ws.apply_preset(&startup_preset);
+        } else {
+            ws.update_global_css();
+            ws.spawn_and_register_pane(first_id, &default_title, None, startup_command.as_deref());
+            ws.rebuild_gtk_tree();
+            ws.refresh_all_panes();
+            ws.focus_active_pane();
+        }
 
         ws
     }
@@ -215,6 +223,37 @@ impl Workspace {
                 border-radius: 4px;
                 padding: 6px 8px;
                 color: #e6e6e6;
+             }}
+             .fwer-preset-col {{
+                background-color: rgba(26, 26, 30, 0.65);
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px;
+             }}
+             .fwer-preset-item {{
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 5px 8px;
+             }}
+             .fwer-preset-item:hover {{
+                background-color: rgba(255, 255, 255, 0.08);
+             }}
+             .fwer-preset-item-selected {{
+                background-color: rgba(56, 189, 248, 0.18);
+                border: 1px solid #38bdf8;
+                border-radius: 4px;
+                padding: 5px 8px;
+             }}
+             .fwer-preset-group-node {{
+                color: #a1a1aa;
+                padding: 3px 6px;
+             }}
+             .fwer-preset-inspector {{
+                background-color: rgba(30, 30, 35, 0.75);
+                border: 1px solid #45454f;
+                border-radius: 6px;
+                padding: 12px;
              }}
              .fwer-pane-moving-source {{
                 border: 2px solid rgb(250, 204, 21);
@@ -954,6 +993,7 @@ impl Workspace {
         }
         let is_empty = self.tree.borrow_mut().close_pane(target_id);
         if let Some(removed) = self.pane_widgets.borrow_mut().remove(&target_id) {
+            removed.detach_callbacks();
             if let Some(parent) = removed.root.parent() {
                 if let Ok(parent_box) = parent.downcast::<gtk4::Box>() {
                     parent_box.remove(&removed.root);
@@ -980,9 +1020,11 @@ impl Workspace {
 
     pub fn load_saved_layout(self: &Rc<Self>) -> Result<(), String> {
         let node = LayoutNode::load_from_disk()?;
-        let new_tree = node.build_tree();
+        let next_id = self.tree.borrow().next_id_counter();
+        let (new_tree, pane_configs) = node.build_tree_with_configs_starting_at(next_id);
 
         for pane in self.pane_widgets.borrow().values() {
+            pane.detach_callbacks();
             if let Some(parent) = pane.root.parent() {
                 if let Ok(parent_box) = parent.downcast::<gtk4::Box>() {
                     parent_box.remove(&pane.root);
@@ -991,29 +1033,159 @@ impl Workspace {
         }
         self.pane_widgets.borrow_mut().clear();
 
-        let panes_to_spawn: Vec<(TileId, String, Option<String>)> = new_tree
-            .ordered_pane_ids()
-            .into_iter()
-            .filter_map(|id| {
-                new_tree
-                    .panes
-                    .get(&id)
-                    .map(|m| (id, m.title.clone(), m.command.clone()))
-            })
-            .collect();
-
+        let ordered_ids = new_tree.ordered_pane_ids();
         *self.tree.borrow_mut() = new_tree;
         self.mode.set(InteractionMode::Normal);
         self.reset_opacity_mode_state();
 
-        for (id, title, cmd) in panes_to_spawn {
-            self.spawn_and_register_pane(id, &title, None, cmd.as_deref());
+        for id in ordered_ids {
+            let cfg = pane_configs.get(&id).cloned().unwrap_or_default();
+            let wd_path = cfg
+                .working_dir
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .and_then(expand_tilde_path);
+            let pane = self.spawn_and_register_pane(id, &cfg.title, wd_path.as_deref(), None);
+            pane.set_custom_opacity(cfg.opacity);
+            pane.set_custom_font_size(cfg.font_size);
+
+            if let Some(cmd) = cfg
+                .command
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+            {
+                pane.set_startup_command(Some(cmd.clone()));
+                let pane_for_cmd = Rc::clone(&pane);
+                glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(250),
+                    move || {
+                        if pane_for_cmd.is_alive() {
+                            let line = format!("{}\n", cmd);
+                            pane_for_cmd.write_input(line.as_bytes());
+                        }
+                    },
+                );
+            }
         }
 
         self.rebuild_gtk_tree();
         self.refresh_all_panes();
         self.focus_active_pane();
         Ok(())
+    }
+
+    pub fn capture_current_preset(&self, name: &str) -> WorkspacePreset {
+        let tree = self.tree.borrow();
+        let panes = self.pane_widgets.borrow();
+        let root = LayoutNode::from_tree_with_configs(&tree, |id| {
+            let meta = tree.panes.get(&id);
+            let title = meta
+                .map(|m| m.title.clone())
+                .unwrap_or_else(|| "Shell".to_string());
+            let widget = panes.get(&id);
+            let command = widget
+                .and_then(|w| w.startup_command())
+                .or_else(|| meta.and_then(|m| m.command.clone()))
+                .filter(|s| !s.trim().is_empty());
+            let working_dir = widget
+                .and_then(|w| w.current_working_dir())
+                .map(|p| p.to_string_lossy().to_string())
+                .filter(|s| !s.trim().is_empty());
+            let opacity = widget.and_then(|w| w.custom_opacity());
+            let font_size = widget.and_then(|w| w.custom_font_size());
+            PanePresetConfig {
+                title,
+                command,
+                working_dir,
+                opacity,
+                font_size,
+            }
+        })
+        .unwrap_or_else(|| LayoutNode::Pane {
+            title: "Shell".to_string(),
+            command: None,
+            working_dir: None,
+            opacity: None,
+            font_size: None,
+        });
+
+        let s = self.settings.borrow();
+        WorkspacePreset {
+            name: name.to_string(),
+            run_on_startup: false,
+            window_opacity: Some(s.effective_terminal_bg_opacity()),
+            window_font_size: Some(s.effective_terminal_font_size()),
+            ui_font_size: Some(s.effective_ui_font_size()),
+            root,
+        }
+    }
+
+    pub fn apply_preset(self: &Rc<Self>, preset: &WorkspacePreset) {
+        {
+            let mut s = self.settings.borrow_mut();
+            if let Some(op) = preset.window_opacity {
+                s.terminal_bg_opacity = op.clamp(0.0, 1.0);
+            }
+            if let Some(fs) = preset.window_font_size {
+                s.terminal_font_size = ((fs.clamp(8.0, 36.0) * 2.0).round()) / 2.0;
+            }
+            if let Some(uifs) = preset.ui_font_size {
+                s.ui_font_size = ((uifs.clamp(9.0, 28.0) * 2.0).round()) / 2.0;
+            }
+        }
+        self.update_global_css();
+
+        let next_id = self.tree.borrow().next_id_counter();
+        let (new_tree, pane_configs) = preset.root.build_tree_with_configs_starting_at(next_id);
+
+        for pane in self.pane_widgets.borrow().values() {
+            pane.detach_callbacks();
+            if let Some(parent) = pane.root.parent()
+                && let Ok(parent_box) = parent.downcast::<gtk4::Box>()
+            {
+                parent_box.remove(&pane.root);
+            }
+        }
+        self.pane_widgets.borrow_mut().clear();
+
+        let ordered_ids = new_tree.ordered_pane_ids();
+        *self.tree.borrow_mut() = new_tree;
+        self.mode.set(InteractionMode::Normal);
+        self.reset_opacity_mode_state();
+
+        for id in ordered_ids {
+            let cfg = pane_configs.get(&id).cloned().unwrap_or_default();
+            let wd_str = cfg.working_dir.as_deref().filter(|s| !s.trim().is_empty());
+            let wd_path = wd_str.and_then(expand_tilde_path);
+
+            let pane = self.spawn_and_register_pane(id, &cfg.title, wd_path.as_deref(), None);
+            pane.set_custom_opacity(cfg.opacity);
+            pane.set_custom_font_size(cfg.font_size);
+
+            if let Some(cmd) = cfg
+                .command
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+            {
+                pane.set_startup_command(Some(cmd.clone()));
+                let pane_for_cmd = Rc::clone(&pane);
+                glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(250),
+                    move || {
+                        if pane_for_cmd.is_alive() {
+                            let line = format!("{}\n", cmd);
+                            pane_for_cmd.write_input(line.as_bytes());
+                        }
+                    },
+                );
+            }
+        }
+
+        self.rebuild_gtk_tree();
+        self.refresh_all_panes();
+        self.focus_active_pane();
     }
 
     fn open_context_menu_for(
@@ -1032,15 +1204,31 @@ impl Workspace {
             has_selection: pane.has_selection(),
             shortcuts: self.settings.borrow().shortcuts.clone(),
         };
-        let entries = self.menu_manager.borrow().build_entries(&ctx);
+        let preset_names: Vec<String> = PresetStore::load()
+            .presets
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        let entries = self
+            .menu_manager
+            .borrow()
+            .build_entries_with_presets(&ctx, &preset_names);
 
         let anchor_widget: gtk4::Widget = match target_kind {
             MenuTargetKind::Pane => pane.root.clone().upcast(),
             MenuTargetKind::Titlebar => pane.titlebar.root.clone().upcast(),
         };
 
+        let (root_x, root_y) = anchor_widget
+            .compute_point(
+                &self.root_box,
+                &gtk4::graphene::Point::new(x as f32, y as f32),
+            )
+            .map(|pt| (pt.x() as f64, pt.y() as f64))
+            .unwrap_or((x, y));
+
         let ws_weak = Rc::downgrade(self);
-        show_context_menu_popover(&anchor_widget, x, y, &entries, move |action| {
+        show_context_menu_popover(&self.root_box, root_x, root_y, &entries, move |action| {
             let Some(ws) = ws_weak.upgrade() else {
                 return;
             };
@@ -1076,6 +1264,11 @@ impl Workspace {
                     ws.emit_window_action(WorkspaceWindowAction::OpenPreferences);
                 }
                 MenuAction::ClosePane => ws.close_pane_by_id(tile_id),
+                MenuAction::ApplyPreset(preset_name) => {
+                    if let Some(preset) = PresetStore::load().find_by_name(&preset_name).cloned() {
+                        ws.apply_preset(&preset);
+                    }
+                }
                 MenuAction::PluginCommand(cmd) => {
                     if let Some(p) = ws.pane_widgets.borrow().get(&tile_id) {
                         let line = format!("{}\n", cmd);

@@ -161,6 +161,9 @@ pub struct TerminalPaneWidget {
     is_opacity_source: Rc<Cell<bool>>,
     opacity_confirmed: Rc<Cell<bool>>,
     custom_opacity: Cell<Option<f32>>,
+    custom_font_size: Cell<Option<f32>>,
+    initial_working_dir: RefCell<Option<PathBuf>>,
+    startup_command_str: RefCell<Option<String>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
     pinch_initial_zoom: Rc<Cell<f64>>,
 }
@@ -275,6 +278,9 @@ impl TerminalPaneWidget {
         let is_opacity_source = Rc::new(Cell::new(false));
         let opacity_confirmed = Rc::new(Cell::new(false));
         let custom_opacity = Cell::new(None);
+        let custom_font_size = Cell::new(None);
+        let initial_working_dir = RefCell::new(working_dir.map(|p| p.to_path_buf()));
+        let startup_command_str = RefCell::new(startup_command.map(|s| s.to_string()));
         let settings_cache = Rc::new(RefCell::new(settings.clone()));
         let pinch_initial_zoom = Rc::new(Cell::new(1.0));
 
@@ -292,6 +298,9 @@ impl TerminalPaneWidget {
             is_opacity_source,
             opacity_confirmed,
             custom_opacity,
+            custom_font_size,
+            initial_working_dir,
+            startup_command_str,
             settings_cache,
             pinch_initial_zoom,
         });
@@ -606,9 +615,36 @@ impl TerminalPaneWidget {
         self.set_custom_opacity(Some(next));
     }
 
+    pub fn custom_font_size(&self) -> Option<f32> {
+        self.custom_font_size.get()
+    }
+
+    pub fn effective_font_size(&self, settings: &ThemeSettings) -> f32 {
+        self.custom_font_size
+            .get()
+            .unwrap_or_else(|| settings.effective_terminal_font_size())
+            .clamp(8.0, 36.0)
+    }
+
+    pub fn set_custom_font_size(&self, font_size: Option<f32>) {
+        self.custom_font_size
+            .set(font_size.map(|v| ((v.clamp(8.0, 36.0) * 2.0).round()) / 2.0));
+        let settings = self.settings_cache.borrow().clone();
+        self.apply_effective_theme(&settings);
+    }
+
+    pub fn startup_command(&self) -> Option<String> {
+        self.startup_command_str.borrow().clone()
+    }
+
+    pub fn set_startup_command(&self, cmd: Option<String>) {
+        *self.startup_command_str.borrow_mut() = cmd;
+    }
+
     fn apply_effective_theme(&self, settings: &ThemeSettings) {
         let mut eff = settings.clone();
         eff.terminal_bg_opacity = self.effective_opacity(settings);
+        eff.terminal_font_size = self.effective_font_size(settings);
         self.backend.borrow_mut().apply_theme(&eff);
     }
 
@@ -667,12 +703,23 @@ impl TerminalPaneWidget {
         self.backend.borrow().has_selection()
     }
 
+    pub fn is_alive(&self) -> bool {
+        self.backend.borrow().is_alive()
+    }
+
+    pub fn detach_callbacks(&self) {
+        self.backend.borrow_mut().clear_callbacks();
+    }
+
     pub fn current_working_dir(&self) -> Option<PathBuf> {
-        self.backend.borrow().current_working_dir()
+        self.backend
+            .borrow()
+            .current_working_dir()
+            .or_else(|| self.initial_working_dir.borrow().clone())
     }
 
     pub fn set_zoom_scale(&self, scale: f64) {
-        let base_font = self.settings_cache.borrow().effective_terminal_font_size();
+        let base_font = self.effective_font_size(&self.settings_cache.borrow());
         let clamped = compute_clamped_zoom(scale, base_font);
         self.backend.borrow_mut().set_zoom_scale(clamped);
     }

@@ -9,7 +9,7 @@ pub mod presets;
 pub mod renderer;
 pub mod types;
 
-use crate::menus::presets::{default_pane_menu, default_titlebar_menu};
+use crate::menus::presets::{build_presets_submenu, default_pane_menu, default_titlebar_menu};
 use crate::menus::types::{MenuContext, MenuEntry, MenuTargetKind};
 
 #[derive(Debug, Clone, Default)]
@@ -34,6 +34,35 @@ impl MenuManager {
         let (mut base, plugins) = match ctx.target_kind {
             MenuTargetKind::Pane => (default_pane_menu(ctx), &self.pane_plugins),
             MenuTargetKind::Titlebar => (default_titlebar_menu(ctx), &self.titlebar_plugins),
+        };
+        if !plugins.is_empty() {
+            base.push(MenuEntry::Separator);
+            base.extend(plugins.iter().cloned());
+        }
+        base
+    }
+
+    pub fn build_entries_with_presets(
+        &self,
+        ctx: &MenuContext,
+        preset_names: &[String],
+    ) -> Vec<MenuEntry> {
+        let submenu = build_presets_submenu(preset_names);
+        let (mut base, plugins) = match ctx.target_kind {
+            MenuTargetKind::Pane => {
+                let mut entries = default_pane_menu(ctx);
+                // Insert Presets submenu after New Tab (index 5)
+                let insert_idx = 5.min(entries.len());
+                entries.insert(insert_idx, submenu);
+                (entries, &self.pane_plugins)
+            }
+            MenuTargetKind::Titlebar => {
+                let mut entries = default_titlebar_menu(ctx);
+                // Insert Presets submenu after Layout (index 3)
+                let insert_idx = 3.min(entries.len());
+                entries.insert(insert_idx, submenu);
+                (entries, &self.titlebar_plugins)
+            }
         };
         if !plugins.is_empty() {
             base.push(MenuEntry::Separator);

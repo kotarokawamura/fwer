@@ -18,6 +18,7 @@ use gtk4::glib;
 use gtk4::pango;
 use gtk4::prelude::*;
 
+use crate::config::layout_preset::{LayoutNode, PresetStore, WorkspacePreset};
 use crate::config::theme::{
     ShortcutSettings, ThemeSettings, cached_system_fonts, extract_font_family_from_path,
     format_recorded_shortcut, format_rgb_hex, is_font_cjk, is_font_monospace, is_valid_font_file,
@@ -44,6 +45,12 @@ struct ShortcutRowWidgets {
     updating: Rc<Cell<bool>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresetEditorTarget {
+    Window,
+    Pane(usize),
+}
+
 pub struct PreferencesWindow {
     pub window: gtk4::Window,
     workspace: Rc<Workspace>,
@@ -57,6 +64,9 @@ pub struct PreferencesWindow {
     discovered_fonts: Rc<RefCell<Vec<PathBuf>>>,
     fonts_loaded: Cell<bool>,
     font_tab_populated: Cell<bool>,
+    selected_preset_index: Cell<Option<usize>>,
+    selected_preset_target: Cell<PresetEditorTarget>,
+    presets_box: gtk4::Box,
     catalog_window: RefCell<Option<gtk4::Window>>,
     on_settings_applied: Rc<dyn Fn(&ThemeSettings)>,
 }
@@ -70,10 +80,10 @@ impl PreferencesWindow {
         let window = gtk4::Window::builder()
             .title(tr("Termin Preferences"))
             .transient_for(parent)
-            .default_width(760)
-            .default_height(520)
-            .width_request(640)
-            .height_request(380)
+            .default_width(920)
+            .default_height(560)
+            .width_request(720)
+            .height_request(420)
             .resizable(true)
             .build();
 
@@ -95,6 +105,9 @@ impl PreferencesWindow {
         recording_status_label.set_visible(false);
 
         let discovered_fonts = Rc::new(RefCell::new(Vec::new()));
+        let presets_box = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+        presets_box.set_hexpand(true);
+        presets_box.set_vexpand(true);
 
         let prefs = Rc::new(Self {
             window,
@@ -109,6 +122,9 @@ impl PreferencesWindow {
             discovered_fonts,
             fonts_loaded: Cell::new(false),
             font_tab_populated: Cell::new(false),
+            selected_preset_index: Cell::new(Some(0)),
+            selected_preset_target: Cell::new(PresetEditorTarget::Window),
+            presets_box,
             catalog_window: RefCell::new(None),
             on_settings_applied: Rc::new(on_settings_applied),
         });
@@ -129,6 +145,8 @@ impl PreferencesWindow {
         self.window.set_title(Some(&tr("Termin Preferences")));
         if self.stack.first_child().is_none() {
             self.rebuild_tabs();
+        } else {
+            self.refresh_presets_ui();
         }
         self.window.present();
     }
@@ -138,9 +156,9 @@ impl PreferencesWindow {
         self.collapsed.set(next);
         self.body_revealer.set_reveal_child(!next);
         if next {
-            self.window.set_default_size(760, 56);
+            self.window.set_default_size(920, 56);
         } else {
-            self.window.set_default_size(760, 520);
+            self.window.set_default_size(920, 560);
         }
     }
 
@@ -180,6 +198,7 @@ impl PreferencesWindow {
             ("titlebar", tr("Titlebar & Frame")),
             ("font", tr("Font")),
             ("shortcuts", tr("Shortcuts")),
+            ("presets", tr("Presets")),
             ("language", tr("Language")),
         ];
 
@@ -191,6 +210,9 @@ impl PreferencesWindow {
                 if let Some(p) = p_weak.upgrade() {
                     if tab_id == "font" && !p.font_tab_populated.get() {
                         p.populate_font_tab_now();
+                    }
+                    if tab_id == "presets" {
+                        p.refresh_presets_ui();
                     }
                     p.stack.set_visible_child_name(&tab_id);
                 }
@@ -373,6 +395,14 @@ impl PreferencesWindow {
             .map(|s| s.to_string())
             .unwrap_or_else(|| "titlebar".to_string());
 
+        if let Some(vp) = self
+            .presets_box
+            .parent()
+            .and_then(|p| p.downcast::<gtk4::Viewport>().ok())
+        {
+            vp.set_child(gtk4::Widget::NONE);
+        }
+
         while let Some(child) = self.stack.first_child() {
             self.stack.remove(&child);
         }
@@ -386,11 +416,14 @@ impl PreferencesWindow {
             gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast()
         };
         let tab3 = Self::wrap_tab_scrolled(&self.build_shortcuts_tab());
+        self.refresh_presets_ui();
+        let tab_presets = Self::wrap_tab_scrolled(&self.presets_box);
         let tab4 = Self::wrap_tab_scrolled(&self.build_language_tab());
 
         self.stack.add_named(&tab1, Some("titlebar"));
         self.stack.add_named(&tab2, Some("font"));
         self.stack.add_named(&tab3, Some("shortcuts"));
+        self.stack.add_named(&tab_presets, Some("presets"));
         self.stack.add_named(&tab4, Some("language"));
 
         self.stack.set_visible_child_name(&cur_tab);
@@ -1619,6 +1652,1148 @@ impl PreferencesWindow {
         }
 
         vbox.upcast()
+    }
+
+    fn refresh_presets_ui(self: &Rc<Self>) {
+        while let Some(child) = self.presets_box.first_child() {
+            self.presets_box.remove(&child);
+        }
+
+        let store = PresetStore::load();
+        if !store.presets.is_empty() {
+            let cur_idx = self.selected_preset_index.get().unwrap_or(0);
+            if cur_idx >= store.presets.len() {
+                self.selected_preset_index
+                    .set(Some(store.presets.len() - 1));
+            } else if self.selected_preset_index.get().is_none() {
+                self.selected_preset_index.set(Some(0));
+            }
+        } else {
+            self.selected_preset_index.set(None);
+        }
+
+        let selected_idx_opt = self.selected_preset_index.get();
+        let selected_preset_opt = selected_idx_opt.and_then(|i| store.presets.get(i).cloned());
+
+        if let Some(ref pr) = selected_preset_opt {
+            let pane_count = pr.root.pane_count().max(1);
+            if let PresetEditorTarget::Pane(p_idx) = self.selected_preset_target.get()
+                && p_idx >= pane_count
+            {
+                self.selected_preset_target
+                    .set(PresetEditorTarget::Pane(pane_count - 1));
+            }
+        } else {
+            self.selected_preset_target.set(PresetEditorTarget::Window);
+        }
+
+        let target = self.selected_preset_target.get();
+
+        // Top header + breadcrumb showing parent -> child path
+        let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+        let top_title = gtk4::Label::new(None);
+        top_title.set_markup(&format!("<b>{}</b>", tr("Workspace Presets")));
+        top_title.set_halign(gtk4::Align::Start);
+        header_row.append(&top_title);
+
+        let breadcrumb_lbl = gtk4::Label::new(None);
+        if let Some(ref pr) = selected_preset_opt {
+            let target_str = match target {
+                PresetEditorTarget::Window => format!("<b>🪟 {}</b>", tr("Window")),
+                PresetEditorTarget::Pane(p_idx) => {
+                    let p_title = pr
+                        .root
+                        .pane_configs()
+                        .get(p_idx)
+                        .map(|c| c.title.clone())
+                        .unwrap_or_else(|| "Shell".to_string());
+                    format!(
+                        "🪟 {}  →  <b>🖥 {} #{} ({})</b>",
+                        tr("Window"),
+                        tr("Pane"),
+                        p_idx + 1,
+                        glib::markup_escape_text(&p_title)
+                    )
+                }
+            };
+            breadcrumb_lbl.set_markup(&format!(
+                "<small>🗂 <b>{}</b>  →  {}</small>",
+                glib::markup_escape_text(&pr.name),
+                target_str
+            ));
+        } else {
+            breadcrumb_lbl.set_markup(&format!("<small>{}</small>", tr("No Saved Presets")));
+        }
+        breadcrumb_lbl.set_halign(gtk4::Align::End);
+        breadcrumb_lbl.set_hexpand(true);
+        header_row.append(&breadcrumb_lbl);
+        self.presets_box.append(&header_row);
+
+        // 3-Column Master -> Hierarchy (Window -> Panel) -> Settings Inspector
+        let columns_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+        columns_row.set_hexpand(true);
+        columns_row.set_vexpand(true);
+
+        // ====================================================================
+        // COLUMN 1 (LEFT): Saved Presets List & Create/Save/Delete Controls
+        // ====================================================================
+        let col1 = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        col1.add_css_class("fwer-preset-col");
+        col1.set_width_request(215);
+        col1.set_vexpand(true);
+
+        let col1_title = gtk4::Label::new(None);
+        col1_title.set_markup(&format!("<b>1. {}</b>", tr("Saved Presets")));
+        col1_title.set_halign(gtk4::Align::Start);
+        col1.append(&col1_title);
+
+        let col1_scroll = gtk4::ScrolledWindow::new();
+        col1_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        col1_scroll.set_vexpand(true);
+        col1_scroll.set_min_content_height(220);
+
+        let preset_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        if store.presets.is_empty() {
+            let empty_lbl = gtk4::Label::new(Some(&tr("No Saved Presets")));
+            empty_lbl.set_halign(gtk4::Align::Start);
+            empty_lbl.set_margin_top(8);
+            preset_list_box.append(&empty_lbl);
+        } else {
+            let sel_idx = selected_idx_opt.unwrap_or(0);
+            for (idx, preset) in store.presets.iter().enumerate() {
+                let is_sel = idx == sel_idx;
+                let item_btn = gtk4::Button::new();
+                item_btn.add_css_class("flat");
+                item_btn.add_css_class(if is_sel {
+                    "fwer-preset-item-selected"
+                } else {
+                    "fwer-preset-item"
+                });
+
+                let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                let startup_badge = if preset.run_on_startup { " ★" } else { "" };
+                let lbl = gtk4::Label::new(None);
+                lbl.set_markup(&format!(
+                    "<b>{}</b>{} <small>({})</small>",
+                    glib::markup_escape_text(&preset.name),
+                    startup_badge,
+                    preset.root.pane_count()
+                ));
+                lbl.set_halign(gtk4::Align::Start);
+                lbl.set_hexpand(true);
+                lbl.set_ellipsize(pango::EllipsizeMode::End);
+                row_box.append(&lbl);
+
+                if is_sel {
+                    let arrow = gtk4::Label::new(Some("→"));
+                    arrow.set_halign(gtk4::Align::End);
+                    row_box.append(&arrow);
+                }
+
+                item_btn.set_child(Some(&row_box));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    item_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            p.selected_preset_index.set(Some(idx));
+                            p.selected_preset_target.set(PresetEditorTarget::Window);
+                            p.refresh_presets_ui();
+                        }
+                    });
+                }
+                preset_list_box.append(&item_btn);
+            }
+        }
+        col1_scroll.set_child(Some(&preset_list_box));
+        col1.append(&col1_scroll);
+
+        col1.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+        let name_entry = gtk4::Entry::new();
+        name_entry.set_placeholder_text(Some(&tr("Preset Name (e.g. Dev Set)")));
+        col1.append(&name_entry);
+
+        let add_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        let new_preset_btn = gtk4::Button::with_label(&tr("+ New Preset"));
+        new_preset_btn.set_hexpand(true);
+        let save_cur_btn = gtk4::Button::with_label(&tr("Save Current Workspace"));
+        save_cur_btn.set_hexpand(true);
+        add_row.append(&new_preset_btn);
+        add_row.append(&save_cur_btn);
+        col1.append(&add_row);
+
+        {
+            let p_weak = Rc::downgrade(self);
+            let ne = name_entry.clone();
+            new_preset_btn.connect_clicked(move |_| {
+                if let Some(p) = p_weak.upgrade() {
+                    let mut st = PresetStore::load();
+                    let raw = ne.text().trim().to_string();
+                    let name = if raw.is_empty() {
+                        format!("Preset {}", st.presets.len() + 1)
+                    } else {
+                        raw
+                    };
+                    let s = p.workspace.settings();
+                    let preset = WorkspacePreset {
+                        name: name.clone(),
+                        run_on_startup: false,
+                        window_opacity: Some(s.effective_terminal_bg_opacity()),
+                        window_font_size: Some(s.effective_terminal_font_size()),
+                        ui_font_size: Some(s.effective_ui_font_size()),
+                        root: LayoutNode::Pane {
+                            title: "Shell".to_string(),
+                            command: None,
+                            working_dir: None,
+                            opacity: None,
+                            font_size: None,
+                        },
+                    };
+                    st.upsert(preset);
+                    let _ = st.save();
+                    if let Some(pos) = st.presets.iter().position(|pr| pr.name == name) {
+                        p.selected_preset_index.set(Some(pos));
+                    }
+                    p.selected_preset_target.set(PresetEditorTarget::Window);
+                    p.refresh_presets_ui();
+                }
+            });
+        }
+        {
+            let p_weak = Rc::downgrade(self);
+            let ne = name_entry.clone();
+            save_cur_btn.connect_clicked(move |_| {
+                if let Some(p) = p_weak.upgrade() {
+                    let mut st = PresetStore::load();
+                    let raw = ne.text().trim().to_string();
+                    let name = if raw.is_empty() {
+                        format!("Preset {}", st.presets.len() + 1)
+                    } else {
+                        raw
+                    };
+                    let preset = p.workspace.capture_current_preset(&name);
+                    st.upsert(preset);
+                    let _ = st.save();
+                    if let Some(pos) = st.presets.iter().position(|pr| pr.name == name) {
+                        p.selected_preset_index.set(Some(pos));
+                    }
+                    p.selected_preset_target.set(PresetEditorTarget::Window);
+                    p.refresh_presets_ui();
+                }
+            });
+        }
+
+        if let Some(sel_idx) = selected_idx_opt
+            && let Some(ref sel_pr) = selected_preset_opt
+        {
+            let act_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            let apply_col1_btn = gtk4::Button::with_label(&tr("Apply Now"));
+            apply_col1_btn.set_hexpand(true);
+            {
+                let p_weak = Rc::downgrade(self);
+                apply_col1_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let st = PresetStore::load();
+                        if let Some(latest) = st.presets.get(sel_idx) {
+                            p.workspace.apply_preset(latest);
+                        }
+                    }
+                });
+            }
+
+            let del_col1_btn = gtk4::Button::with_label(&tr("Delete"));
+            {
+                let p_weak = Rc::downgrade(self);
+                let preset_name = sel_pr.name.clone();
+                del_col1_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = PresetStore::load();
+                        st.remove_by_name(&preset_name);
+                        let _ = st.save();
+                        p.selected_preset_target.set(PresetEditorTarget::Window);
+                        p.refresh_presets_ui();
+                    }
+                });
+            }
+            act_row.append(&apply_col1_btn);
+            act_row.append(&del_col1_btn);
+            col1.append(&act_row);
+        }
+
+        columns_row.append(&col1);
+
+        // ====================================================================
+        // COLUMN 2 (MIDDLE): Parent / Child Hierarchy Tree (Window -> Panel)
+        // ====================================================================
+        let col2 = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        col2.add_css_class("fwer-preset-col");
+        col2.set_width_request(255);
+        col2.set_vexpand(true);
+
+        let col2_title = gtk4::Label::new(None);
+        col2_title.set_markup(&format!("<b>2. {} (Window → Panel)</b>", tr("Hierarchy")));
+        col2_title.set_halign(gtk4::Align::Start);
+        col2.append(&col2_title);
+
+        let col2_scroll = gtk4::ScrolledWindow::new();
+        col2_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        col2_scroll.set_vexpand(true);
+        col2_scroll.set_min_content_height(220);
+
+        let tree_box = gtk4::Box::new(gtk4::Orientation::Vertical, 3);
+        let pane_tree_labels: Rc<RefCell<HashMap<usize, gtk4::Label>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+
+        if let Some(ref sel_pr) = selected_preset_opt {
+            // Root node: Window
+            let is_win_sel = target == PresetEditorTarget::Window;
+            let win_btn = gtk4::Button::new();
+            win_btn.add_css_class("flat");
+            win_btn.add_css_class(if is_win_sel {
+                "fwer-preset-item-selected"
+            } else {
+                "fwer-preset-item"
+            });
+
+            let win_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            let win_lbl = gtk4::Label::new(None);
+            win_lbl.set_markup(&format!(
+                "▾ 🪟 <b>{}</b> <small>({})</small>",
+                tr("Window"),
+                glib::markup_escape_text(&sel_pr.name)
+            ));
+            win_lbl.set_halign(gtk4::Align::Start);
+            win_lbl.set_hexpand(true);
+            win_lbl.set_ellipsize(pango::EllipsizeMode::End);
+            win_row.append(&win_lbl);
+
+            if is_win_sel {
+                let arrow = gtk4::Label::new(Some("→"));
+                arrow.set_halign(gtk4::Align::End);
+                win_row.append(&arrow);
+            }
+            win_btn.set_child(Some(&win_row));
+            {
+                let p_weak = Rc::downgrade(self);
+                win_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        p.selected_preset_target.set(PresetEditorTarget::Window);
+                        p.refresh_presets_ui();
+                    }
+                });
+            }
+            tree_box.append(&win_btn);
+
+            // Child nodes under Window
+            let mut pane_counter = 0usize;
+            self.append_preset_tree_node(
+                &tree_box,
+                &sel_pr.root,
+                1,
+                true,
+                &mut pane_counter,
+                target,
+                &pane_tree_labels,
+            );
+        } else {
+            let hint_lbl = gtk4::Label::new(Some(&tr("Select or create a preset on the left.")));
+            hint_lbl.set_halign(gtk4::Align::Start);
+            hint_lbl.set_wrap(true);
+            tree_box.append(&hint_lbl);
+        }
+
+        col2_scroll.set_child(Some(&tree_box));
+        col2.append(&col2_scroll);
+
+        // Quick split/add/remove toolbar at bottom of Hierarchy column
+        if let Some(sel_idx) = selected_idx_opt
+            && let Some(ref sel_pr) = selected_preset_opt
+        {
+            col2.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+            let active_pane_idx = match target {
+                PresetEditorTarget::Pane(i) => i,
+                PresetEditorTarget::Window => 0,
+            };
+            let total_panes = sel_pr.root.pane_count();
+
+            let tree_actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            let sh_btn = gtk4::Button::with_label("↔ Split H");
+            sh_btn.set_tooltip_text(Some(&tr("Split Horizontally")));
+            sh_btn.set_hexpand(true);
+            {
+                let p_weak = Rc::downgrade(self);
+                sh_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(sel_idx) {
+                            pr.root.split_pane_at(active_pane_idx, true);
+                            let _ = st.save();
+                            p.selected_preset_target
+                                .set(PresetEditorTarget::Pane(active_pane_idx + 1));
+                            p.refresh_presets_ui();
+                        }
+                    }
+                });
+            }
+
+            let sv_btn = gtk4::Button::with_label("↕ Split V");
+            sv_btn.set_tooltip_text(Some(&tr("Split Vertically")));
+            sv_btn.set_hexpand(true);
+            {
+                let p_weak = Rc::downgrade(self);
+                sv_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(sel_idx) {
+                            pr.root.split_pane_at(active_pane_idx, false);
+                            let _ = st.save();
+                            p.selected_preset_target
+                                .set(PresetEditorTarget::Pane(active_pane_idx + 1));
+                            p.refresh_presets_ui();
+                        }
+                    }
+                });
+            }
+
+            let tab_btn = gtk4::Button::with_label("➕ Tab");
+            tab_btn.set_tooltip_text(Some(&tr("Add Tab")));
+            {
+                let p_weak = Rc::downgrade(self);
+                tab_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(sel_idx) {
+                            pr.root.add_tab_at(active_pane_idx);
+                            let _ = st.save();
+                            p.selected_preset_target
+                                .set(PresetEditorTarget::Pane(active_pane_idx + 1));
+                            p.refresh_presets_ui();
+                        }
+                    }
+                });
+            }
+
+            let rm_btn = gtk4::Button::with_label("✖");
+            rm_btn.set_tooltip_text(Some(&tr("Remove Pane")));
+            rm_btn.set_sensitive(total_panes > 1);
+            {
+                let p_weak = Rc::downgrade(self);
+                rm_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(sel_idx) {
+                            pr.root.remove_pane_at(active_pane_idx);
+                            let _ = st.save();
+                            let next_idx = active_pane_idx.saturating_sub(1);
+                            p.selected_preset_target
+                                .set(PresetEditorTarget::Pane(next_idx));
+                            p.refresh_presets_ui();
+                        }
+                    }
+                });
+            }
+
+            tree_actions.append(&sh_btn);
+            tree_actions.append(&sv_btn);
+            tree_actions.append(&tab_btn);
+            tree_actions.append(&rm_btn);
+            col2.append(&tree_actions);
+        }
+
+        columns_row.append(&col2);
+
+        // ====================================================================
+        // COLUMN 3 (RIGHT): Settings Inspector for Selected Window or Panel
+        // ====================================================================
+        let col3 = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+        col3.add_css_class("fwer-preset-inspector");
+        col3.set_hexpand(true);
+        col3.set_vexpand(true);
+
+        let Some(selected_idx) = selected_idx_opt else {
+            let empty_inspector = gtk4::Label::new(Some(&tr("No Saved Presets")));
+            empty_inspector.set_halign(gtk4::Align::Start);
+            col3.append(&empty_inspector);
+            columns_row.append(&col3);
+            self.presets_box.append(&columns_row);
+            return;
+        };
+        let Some(selected_preset) = selected_preset_opt else {
+            columns_row.append(&col3);
+            self.presets_box.append(&columns_row);
+            return;
+        };
+
+        match target {
+            PresetEditorTarget::Window => {
+                let win_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let win_sec_lbl = gtk4::Label::new(None);
+                win_sec_lbl.set_markup(&format!(
+                    "<b>3. 🪟 {} — {}</b>",
+                    tr("Window Settings"),
+                    glib::markup_escape_text(&selected_preset.name)
+                ));
+                win_sec_lbl.set_halign(gtk4::Align::Start);
+                win_sec_lbl.set_hexpand(true);
+                win_hdr.append(&win_sec_lbl);
+                col3.append(&win_hdr);
+
+                let hint_lbl = gtk4::Label::new(None);
+                hint_lbl.set_markup(&format!(
+                    "<small>{}: {}</small>",
+                    tr("Split Structure"),
+                    glib::markup_escape_text(&selected_preset.root.describe_structure())
+                ));
+                hint_lbl.set_halign(gtk4::Align::Start);
+                col3.append(&hint_lbl);
+
+                col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+                // Preset Name row
+                let rename_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let rename_lbl = gtk4::Label::new(Some(&tr("Preset Name")));
+                rename_lbl.set_width_chars(22);
+                rename_lbl.set_halign(gtk4::Align::Start);
+                let rename_entry = gtk4::Entry::new();
+                rename_entry.set_text(&selected_preset.name);
+                rename_entry.set_hexpand(true);
+                let rename_btn = gtk4::Button::with_label(&tr("Update Name"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    let re = rename_entry.clone();
+                    rename_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let new_name = re.text().trim().to_string();
+                            if !new_name.is_empty() {
+                                let mut st = PresetStore::load();
+                                if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                    pr.name = new_name;
+                                    let _ = st.save();
+                                    p.refresh_presets_ui();
+                                }
+                            }
+                        }
+                    });
+                }
+                {
+                    let btn_c = rename_btn.clone();
+                    rename_entry.connect_activate(move |_| {
+                        btn_c.emit_clicked();
+                    });
+                }
+                rename_row.append(&rename_lbl);
+                rename_row.append(&rename_entry);
+                rename_row.append(&rename_btn);
+                col3.append(&rename_row);
+
+                // Run on Startup + Quick Actions row
+                let startup_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let startup_chk = gtk4::CheckButton::with_label(&tr("Run on Startup"));
+                startup_chk.set_active(selected_preset.run_on_startup);
+                startup_chk.set_hexpand(true);
+                {
+                    let p_weak = Rc::downgrade(self);
+                    startup_chk.connect_toggled(move |chk| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            let target_name = st.presets.get(selected_idx).map(|pr| pr.name.clone());
+                            if chk.is_active() {
+                                st.set_startup_preset(target_name.as_deref());
+                            } else {
+                                st.set_startup_preset(None);
+                            }
+                            let _ = st.save();
+                            p.refresh_presets_ui();
+                        }
+                    });
+                }
+
+                let overwrite_btn = gtk4::Button::with_label(&tr("Overwrite with Current"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    overwrite_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            if let Some(existing) = st.presets.get(selected_idx).cloned() {
+                                let mut captured =
+                                    p.workspace.capture_current_preset(&existing.name);
+                                captured.run_on_startup = existing.run_on_startup;
+                                st.presets[selected_idx] = captured;
+                                let _ = st.save();
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+
+                let apply_btn = gtk4::Button::with_label(&tr("Apply Now"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    apply_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let st = PresetStore::load();
+                            if let Some(latest) = st.presets.get(selected_idx) {
+                                p.workspace.apply_preset(latest);
+                            }
+                        }
+                    });
+                }
+
+                startup_row.append(&startup_chk);
+                startup_row.append(&overwrite_btn);
+                startup_row.append(&apply_btn);
+                col3.append(&startup_row);
+
+                col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+                // Window Opacity
+                let win_op_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let win_op_chk = gtk4::CheckButton::with_label(&tr("Window Opacity"));
+                win_op_chk.set_width_request(210);
+                win_op_chk.set_active(selected_preset.window_opacity.is_some());
+                let win_op_val = selected_preset.window_opacity.unwrap_or(0.95) as f64;
+                let win_op_scale =
+                    gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 1.0, 0.02);
+                win_op_scale.set_draw_value(true);
+                win_op_scale.set_digits(2);
+                win_op_scale.set_value(win_op_val);
+                win_op_scale.set_hexpand(true);
+                win_op_scale.set_sensitive(selected_preset.window_opacity.is_some());
+                {
+                    let sc = win_op_scale.clone();
+                    win_op_chk.connect_toggled(move |chk| {
+                        let active = chk.is_active();
+                        sc.set_sensitive(active);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.window_opacity = if active {
+                                Some(sc.value() as f32)
+                            } else {
+                                None
+                            };
+                            let _ = st.save();
+                        }
+                    });
+                }
+                {
+                    let chk = win_op_chk.clone();
+                    win_op_scale.connect_value_changed(move |sc| {
+                        if chk.is_active() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.window_opacity = Some(sc.value() as f32);
+                                let _ = st.save();
+                            }
+                        }
+                    });
+                }
+                win_op_row.append(&win_op_chk);
+                win_op_row.append(&win_op_scale);
+                col3.append(&win_op_row);
+
+                // Window Terminal Font Size (pt)
+                let win_fs_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let win_fs_chk =
+                    gtk4::CheckButton::with_label(&tr("Window Terminal Font Size (pt)"));
+                win_fs_chk.set_width_request(210);
+                win_fs_chk.set_active(selected_preset.window_font_size.is_some());
+                let win_fs_val = selected_preset.window_font_size.unwrap_or(15.0) as f64;
+                let win_fs_scale =
+                    gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 8.0, 36.0, 0.5);
+                win_fs_scale.set_draw_value(true);
+                win_fs_scale.set_digits(1);
+                win_fs_scale.set_value(win_fs_val);
+                win_fs_scale.set_hexpand(true);
+                win_fs_scale.set_sensitive(selected_preset.window_font_size.is_some());
+                {
+                    let sc = win_fs_scale.clone();
+                    win_fs_chk.connect_toggled(move |chk| {
+                        let active = chk.is_active();
+                        sc.set_sensitive(active);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.window_font_size = if active {
+                                Some(((sc.value() as f32) * 2.0).round() / 2.0)
+                            } else {
+                                None
+                            };
+                            let _ = st.save();
+                        }
+                    });
+                }
+                {
+                    let chk = win_fs_chk.clone();
+                    win_fs_scale.connect_value_changed(move |sc| {
+                        if chk.is_active() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.window_font_size =
+                                    Some(((sc.value() as f32) * 2.0).round() / 2.0);
+                                let _ = st.save();
+                            }
+                        }
+                    });
+                }
+                win_fs_row.append(&win_fs_chk);
+                win_fs_row.append(&win_fs_scale);
+                col3.append(&win_fs_row);
+
+                // Window UI Font Size (pt)
+                let win_uifs_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let win_uifs_chk = gtk4::CheckButton::with_label(&tr("Window UI Font Size (pt)"));
+                win_uifs_chk.set_width_request(210);
+                win_uifs_chk.set_active(selected_preset.ui_font_size.is_some());
+                let win_uifs_val = selected_preset.ui_font_size.unwrap_or(15.0) as f64;
+                let win_uifs_scale =
+                    gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 9.0, 28.0, 0.5);
+                win_uifs_scale.set_draw_value(true);
+                win_uifs_scale.set_digits(1);
+                win_uifs_scale.set_value(win_uifs_val);
+                win_uifs_scale.set_hexpand(true);
+                win_uifs_scale.set_sensitive(selected_preset.ui_font_size.is_some());
+                {
+                    let sc = win_uifs_scale.clone();
+                    win_uifs_chk.connect_toggled(move |chk| {
+                        let active = chk.is_active();
+                        sc.set_sensitive(active);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.ui_font_size = if active {
+                                Some(((sc.value() as f32) * 2.0).round() / 2.0)
+                            } else {
+                                None
+                            };
+                            let _ = st.save();
+                        }
+                    });
+                }
+                {
+                    let chk = win_uifs_chk.clone();
+                    win_uifs_scale.connect_value_changed(move |sc| {
+                        if chk.is_active() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.ui_font_size = Some(((sc.value() as f32) * 2.0).round() / 2.0);
+                                let _ = st.save();
+                            }
+                        }
+                    });
+                }
+                win_uifs_row.append(&win_uifs_chk);
+                win_uifs_row.append(&win_uifs_scale);
+                col3.append(&win_uifs_row);
+            }
+            PresetEditorTarget::Pane(pane_idx) => {
+                let pane_cfgs = selected_preset.root.pane_configs();
+                let total_panes = pane_cfgs.len();
+                let cfg = pane_cfgs.get(pane_idx).cloned().unwrap_or_default();
+
+                let hdr_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                let pane_lbl = gtk4::Label::new(None);
+                pane_lbl.set_markup(&format!(
+                    "<b>3. 🖥 {} #{} — {}</b>",
+                    tr("Pane"),
+                    pane_idx + 1,
+                    tr("Panel Settings")
+                ));
+                pane_lbl.set_halign(gtk4::Align::Start);
+                pane_lbl.set_hexpand(true);
+                hdr_row.append(&pane_lbl);
+                col3.append(&hdr_row);
+
+                // Split / Tab / Remove actions for this panel
+                let struct_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                let split_h_btn = gtk4::Button::with_label(&tr("Split Horizontally"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    split_h_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.split_pane_at(pane_idx, true);
+                                let _ = st.save();
+                                p.selected_preset_target
+                                    .set(PresetEditorTarget::Pane(pane_idx + 1));
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+
+                let split_v_btn = gtk4::Button::with_label(&tr("Split Vertically"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    split_v_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.split_pane_at(pane_idx, false);
+                                let _ = st.save();
+                                p.selected_preset_target
+                                    .set(PresetEditorTarget::Pane(pane_idx + 1));
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+
+                let add_tab_btn = gtk4::Button::with_label(&tr("Add Tab"));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    add_tab_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.add_tab_at(pane_idx);
+                                let _ = st.save();
+                                p.selected_preset_target
+                                    .set(PresetEditorTarget::Pane(pane_idx + 1));
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+
+                let rm_pane_btn = gtk4::Button::with_label(&tr("Remove Pane"));
+                rm_pane_btn.set_sensitive(total_panes > 1);
+                {
+                    let p_weak = Rc::downgrade(self);
+                    rm_pane_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.remove_pane_at(pane_idx);
+                                let _ = st.save();
+                                let next_idx = pane_idx.saturating_sub(1);
+                                p.selected_preset_target
+                                    .set(PresetEditorTarget::Pane(next_idx));
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+
+                struct_row.append(&split_h_btn);
+                struct_row.append(&split_v_btn);
+                struct_row.append(&add_tab_btn);
+                struct_row.append(&rm_pane_btn);
+                col3.append(&struct_row);
+
+                col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+
+                // Title row
+                let title_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let title_lbl = gtk4::Label::new(Some(&tr("Pane Title")));
+                title_lbl.set_width_chars(22);
+                title_lbl.set_halign(gtk4::Align::Start);
+                let title_entry = gtk4::Entry::new();
+                title_entry.set_text(&cfg.title);
+                title_entry.set_hexpand(true);
+                {
+                    let labels_map = Rc::clone(&pane_tree_labels);
+                    title_entry.connect_changed(move |e| {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            let txt = e.text().to_string();
+                            let effective_title = if txt.trim().is_empty() {
+                                "Shell".to_string()
+                            } else {
+                                txt
+                            };
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.title = effective_title.clone();
+                            });
+                            let _ = st.save();
+                            if let Some(tree_lbl) = labels_map.borrow().get(&pane_idx) {
+                                tree_lbl.set_markup(&format!(
+                                    "🖥 <b>{} #{}</b> <small>({})</small>",
+                                    tr("Pane"),
+                                    pane_idx + 1,
+                                    glib::markup_escape_text(&effective_title)
+                                ));
+                            }
+                        }
+                    });
+                }
+                title_row.append(&title_lbl);
+                title_row.append(&title_entry);
+                col3.append(&title_row);
+
+                // Working dir row
+                let wd_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let wd_lbl = gtk4::Label::new(Some(&tr("Working Directory")));
+                wd_lbl.set_width_chars(22);
+                wd_lbl.set_halign(gtk4::Align::Start);
+                let wd_entry = gtk4::Entry::new();
+                wd_entry.set_placeholder_text(Some("~/projects"));
+                wd_entry.set_text(cfg.working_dir.as_deref().unwrap_or(""));
+                wd_entry.set_hexpand(true);
+                {
+                    wd_entry.connect_changed(move |e| {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            let txt = e.text().trim().to_string();
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.working_dir = if txt.is_empty() {
+                                    None
+                                } else {
+                                    Some(txt.clone())
+                                };
+                            });
+                            let _ = st.save();
+                        }
+                    });
+                }
+                wd_row.append(&wd_lbl);
+                wd_row.append(&wd_entry);
+                col3.append(&wd_row);
+
+                // Command row
+                let cmd_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let cmd_lbl = gtk4::Label::new(Some(&tr("Auto-Run Command")));
+                cmd_lbl.set_width_chars(22);
+                cmd_lbl.set_halign(gtk4::Align::Start);
+                let cmd_entry = gtk4::Entry::new();
+                cmd_entry.set_placeholder_text(Some("e.g. nvim, htop, cargo test"));
+                cmd_entry.set_text(cfg.command.as_deref().unwrap_or(""));
+                cmd_entry.set_hexpand(true);
+                {
+                    cmd_entry.connect_changed(move |e| {
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            let txt = e.text().trim().to_string();
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.command =
+                                    if txt.is_empty() { None } else { Some(txt.clone()) };
+                            });
+                            let _ = st.save();
+                        }
+                    });
+                }
+                cmd_row.append(&cmd_lbl);
+                cmd_row.append(&cmd_entry);
+                col3.append(&cmd_row);
+
+                // Panel Opacity row
+                let p_op_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let p_op_chk = gtk4::CheckButton::with_label(&tr("Panel Opacity"));
+                p_op_chk.set_width_request(198);
+                p_op_chk.set_active(cfg.opacity.is_some());
+                let p_op_val = cfg.opacity.unwrap_or(0.95) as f64;
+                let p_op_scale =
+                    gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 1.0, 0.02);
+                p_op_scale.set_draw_value(true);
+                p_op_scale.set_digits(2);
+                p_op_scale.set_value(p_op_val);
+                p_op_scale.set_hexpand(true);
+                p_op_scale.set_sensitive(cfg.opacity.is_some());
+                {
+                    let sc = p_op_scale.clone();
+                    p_op_chk.connect_toggled(move |chk| {
+                        let active = chk.is_active();
+                        sc.set_sensitive(active);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.opacity = if active {
+                                    Some(sc.value() as f32)
+                                } else {
+                                    None
+                                };
+                            });
+                            let _ = st.save();
+                        }
+                    });
+                }
+                {
+                    let chk = p_op_chk.clone();
+                    p_op_scale.connect_value_changed(move |sc| {
+                        if chk.is_active() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.update_pane_at(pane_idx, |c| {
+                                    c.opacity = Some(sc.value() as f32);
+                                });
+                                let _ = st.save();
+                            }
+                        }
+                    });
+                }
+                p_op_row.append(&p_op_chk);
+                p_op_row.append(&p_op_scale);
+                col3.append(&p_op_row);
+
+                // Panel Font Size row
+                let p_fs_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let p_fs_chk = gtk4::CheckButton::with_label(&tr("Panel Font Size (pt)"));
+                p_fs_chk.set_width_request(198);
+                p_fs_chk.set_active(cfg.font_size.is_some());
+                let p_fs_val = cfg.font_size.unwrap_or(15.0) as f64;
+                let p_fs_scale =
+                    gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 8.0, 36.0, 0.5);
+                p_fs_scale.set_draw_value(true);
+                p_fs_scale.set_digits(1);
+                p_fs_scale.set_value(p_fs_val);
+                p_fs_scale.set_hexpand(true);
+                p_fs_scale.set_sensitive(cfg.font_size.is_some());
+                {
+                    let sc = p_fs_scale.clone();
+                    p_fs_chk.connect_toggled(move |chk| {
+                        let active = chk.is_active();
+                        sc.set_sensitive(active);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.font_size = if active {
+                                    Some(((sc.value() as f32) * 2.0).round() / 2.0)
+                                } else {
+                                    None
+                                };
+                            });
+                            let _ = st.save();
+                        }
+                    });
+                }
+                {
+                    let chk = p_fs_chk.clone();
+                    p_fs_scale.connect_value_changed(move |sc| {
+                        if chk.is_active() {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.update_pane_at(pane_idx, |c| {
+                                    c.font_size =
+                                        Some(((sc.value() as f32) * 2.0).round() / 2.0);
+                                });
+                                let _ = st.save();
+                            }
+                        }
+                    });
+                }
+                p_fs_row.append(&p_fs_chk);
+                p_fs_row.append(&p_fs_scale);
+                col3.append(&p_fs_row);
+            }
+        }
+
+        columns_row.append(&col3);
+        self.presets_box.append(&columns_row);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append_preset_tree_node(
+        self: &Rc<Self>,
+        tree_box: &gtk4::Box,
+        node: &LayoutNode,
+        depth: usize,
+        is_last: bool,
+        pane_counter: &mut usize,
+        selected_target: PresetEditorTarget,
+        pane_tree_labels: &Rc<RefCell<HashMap<usize, gtk4::Label>>>,
+    ) {
+        let branch = if is_last { "└─" } else { "├─" };
+        let indent_px = (depth as i32) * 14;
+
+        match node {
+            LayoutNode::Pane { title, command, .. } => {
+                let p_idx = *pane_counter;
+                *pane_counter += 1;
+
+                let is_sel = selected_target == PresetEditorTarget::Pane(p_idx);
+                let pane_btn = gtk4::Button::new();
+                pane_btn.add_css_class("flat");
+                pane_btn.add_css_class(if is_sel {
+                    "fwer-preset-item-selected"
+                } else {
+                    "fwer-preset-item"
+                });
+                pane_btn.set_margin_start(indent_px);
+
+                let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+                let branch_lbl = gtk4::Label::new(Some(branch));
+                branch_lbl.add_css_class("fwer-preset-group-node");
+                row.append(&branch_lbl);
+
+                let cmd_suffix = command
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|c| format!(" [{}]", glib::markup_escape_text(c)))
+                    .unwrap_or_default();
+
+                let lbl = gtk4::Label::new(None);
+                lbl.set_markup(&format!(
+                    "🖥 <b>{} #{}</b> <small>({}{})</small>",
+                    tr("Pane"),
+                    p_idx + 1,
+                    glib::markup_escape_text(title),
+                    cmd_suffix
+                ));
+                lbl.set_halign(gtk4::Align::Start);
+                lbl.set_hexpand(true);
+                lbl.set_ellipsize(pango::EllipsizeMode::End);
+                row.append(&lbl);
+
+                pane_tree_labels.borrow_mut().insert(p_idx, lbl);
+
+                if is_sel {
+                    let arrow = gtk4::Label::new(Some("→"));
+                    arrow.set_halign(gtk4::Align::End);
+                    row.append(&arrow);
+                }
+
+                pane_btn.set_child(Some(&row));
+                {
+                    let p_weak = Rc::downgrade(self);
+                    pane_btn.connect_clicked(move |_| {
+                        if let Some(p) = p_weak.upgrade() {
+                            p.selected_preset_target
+                                .set(PresetEditorTarget::Pane(p_idx));
+                            p.refresh_presets_ui();
+                        }
+                    });
+                }
+                tree_box.append(&pane_btn);
+            }
+            LayoutNode::HorizontalSplit { children }
+            | LayoutNode::VerticalSplit { children }
+            | LayoutNode::Tabs { children } => {
+                let group_label = match node {
+                    LayoutNode::HorizontalSplit { .. } => {
+                        format!("{} ▾ ↔ {}", branch, tr("Horizontal Split"))
+                    }
+                    LayoutNode::VerticalSplit { .. } => {
+                        format!("{} ▾ ↕ {}", branch, tr("Vertical Split"))
+                    }
+                    LayoutNode::Tabs { .. } => {
+                        format!("{} ▾ 📑 {}", branch, tr("Tabs"))
+                    }
+                    _ => String::new(),
+                };
+
+                let grp_lbl = gtk4::Label::new(None);
+                grp_lbl.set_markup(&format!(
+                    "<small><b>{}</b></small>",
+                    glib::markup_escape_text(&group_label)
+                ));
+                grp_lbl.add_css_class("fwer-preset-group-node");
+                grp_lbl.set_halign(gtk4::Align::Start);
+                grp_lbl.set_margin_start(indent_px);
+                tree_box.append(&grp_lbl);
+
+                let len = children.len();
+                for (i, child) in children.iter().enumerate() {
+                    self.append_preset_tree_node(
+                        tree_box,
+                        child,
+                        depth + 1,
+                        i + 1 == len,
+                        pane_counter,
+                        selected_target,
+                        pane_tree_labels,
+                    );
+                }
+            }
+        }
     }
 }
 

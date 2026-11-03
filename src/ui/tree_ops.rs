@@ -53,13 +53,21 @@ impl Default for WorkspaceTree {
 
 impl WorkspaceTree {
     pub fn new() -> Self {
+        Self::with_start_id(1)
+    }
+
+    pub fn with_start_id(start_id: u64) -> Self {
         Self {
-            next_id: 1,
+            next_id: start_id.max(1),
             root: None,
             panes: HashMap::new(),
             active_pane: None,
             split_ratios: HashMap::new(),
         }
+    }
+
+    pub fn next_id_counter(&self) -> u64 {
+        self.next_id
     }
 
     pub fn split_ratio(

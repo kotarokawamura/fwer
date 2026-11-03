@@ -181,6 +181,9 @@ pub trait TerminalBackend {
 
     /// Sets callback triggered when scroll offset or scrollback length changes.
     fn set_on_scroll_changed(&mut self, cb: Box<dyn Fn(usize, usize) + 'static>);
+
+    /// Detaches all event callbacks so a retiring terminal never emits stale events.
+    fn clear_callbacks(&mut self);
 }
 
 /// Factory function for creating the active terminal backend.

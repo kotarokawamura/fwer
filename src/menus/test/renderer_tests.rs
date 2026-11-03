@@ -37,4 +37,13 @@ fn test_default_pane_and_titlebar_menus_and_plugins() {
     };
     let tb_entries = mgr.build_entries(&ctx_titlebar);
     assert_eq!(tb_entries.len(), 8);
+
+    let preset_names = vec!["Dev Set".to_string(), "Logs".to_string()];
+    let pane_with_presets = mgr.build_entries_with_presets(&ctx_pane, &preset_names);
+    assert!(pane_with_presets.iter().any(|e| matches!(
+        e,
+        MenuEntry::SubMenu { entries, .. }
+            if entries.len() == 2
+                && matches!(&entries[0], MenuEntry::Item { action: MenuAction::ApplyPreset(name), .. } if name == "Dev Set")
+    )));
 }

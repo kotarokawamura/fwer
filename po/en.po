@@ -221,3 +221,114 @@ msgid "%d pane"
 msgid_plural "%d panes"
 msgstr[0] "%d pane"
 msgstr[1] "%d panes"
+
+msgid "Presets"
+msgstr "Presets"
+
+msgid "Workspace Presets"
+msgstr "Workspace Presets"
+
+msgid "Save and reproduce screen splits, initial working directories, startup commands, opacity, and font sizes."
+msgstr "Save and reproduce screen splits, initial working directories, startup commands, opacity, and font sizes."
+
+msgid "Preset Name (e.g. Dev Set)"
+msgstr "Preset Name (e.g. Dev Set)"
+
+msgid "Save Current Workspace"
+msgstr "Save Current Workspace"
+
+msgid "+ New Preset"
+msgstr "+ New Preset"
+
+msgid "Saved Presets"
+msgstr "Saved Presets"
+
+msgid "No Saved Presets"
+msgstr "No Saved Presets"
+
+msgid "Panes"
+msgstr "Panes"
+
+msgid "Run on Startup"
+msgstr "Run on Startup"
+
+msgid "Apply Now"
+msgstr "Apply Now"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Overwrite with Current"
+msgstr "Overwrite with Current"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Preset Editor"
+msgstr "Preset Editor"
+
+msgid "Preset Name"
+msgstr "Preset Name"
+
+msgid "Update Name"
+msgstr "Update Name"
+
+msgid "Split Structure"
+msgstr "Split Structure"
+
+msgid "Window Settings"
+msgstr "Window Settings"
+
+msgid "Window Opacity"
+msgstr "Window Opacity"
+
+msgid "Window Terminal Font Size (pt)"
+msgstr "Window Terminal Font Size (pt)"
+
+msgid "Window UI Font Size (pt)"
+msgstr "Window UI Font Size (pt)"
+
+msgid "Panel Settings"
+msgstr "Panel Settings"
+
+msgid "Pane"
+msgstr "Pane"
+
+msgid "Add Tab"
+msgstr "Add Tab"
+
+msgid "Remove Pane"
+msgstr "Remove Pane"
+
+msgid "Pane Title"
+msgstr "Pane Title"
+
+msgid "Working Directory"
+msgstr "Working Directory"
+
+msgid "Auto-Run Command"
+msgstr "Auto-Run Command"
+
+msgid "Panel Opacity"
+msgstr "Panel Opacity"
+
+msgid "Panel Font Size (pt)"
+msgstr "Panel Font Size (pt)"
+
+msgid "Hierarchy"
+msgstr "Hierarchy"
+
+msgid "Window"
+msgstr "Window"
+
+msgid "Select or create a preset on the left."
+msgstr "Select or create a preset on the left."
+
+msgid "Horizontal Split"
+msgstr "Horizontal Split"
+
+msgid "Vertical Split"
+msgstr "Vertical Split"
+
+msgid "Tabs"
+msgstr "Tabs"

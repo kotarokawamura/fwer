@@ -220,3 +220,114 @@ msgstr "読み込み済み翻訳エントリ数"
 msgid "%d pane"
 msgid_plural "%d panes"
 msgstr[0] "%d ペイン"
+
+msgid "Presets"
+msgstr "プリセット"
+
+msgid "Workspace Presets"
+msgstr "ワークスペースプリセット"
+
+msgid "Save and reproduce screen splits, initial working directories, startup commands, opacity, and font sizes."
+msgstr "画面の分割状態・初期ディレクトリ・自動実行コマンド・透明度・フォントサイズをセットで保存し、いつでも一瞬で再現できます。"
+
+msgid "Preset Name (e.g. Dev Set)"
+msgstr "プリセット名 (例: 開発セット)"
+
+msgid "Save Current Workspace"
+msgstr "現在の状態を保存"
+
+msgid "+ New Preset"
+msgstr "+ 新規プリセット作成"
+
+msgid "Saved Presets"
+msgstr "保存済みプリセット一覧"
+
+msgid "No Saved Presets"
+msgstr "保存されたプリセットはありません"
+
+msgid "Panes"
+msgstr "ペイン"
+
+msgid "Run on Startup"
+msgstr "起動時に発動"
+
+msgid "Apply Now"
+msgstr "今すぐ適用"
+
+msgid "Edit"
+msgstr "編集"
+
+msgid "Overwrite with Current"
+msgstr "現在の状態で上書き"
+
+msgid "Delete"
+msgstr "削除"
+
+msgid "Preset Editor"
+msgstr "プリセット編集"
+
+msgid "Preset Name"
+msgstr "プリセット名"
+
+msgid "Update Name"
+msgstr "名前を更新"
+
+msgid "Split Structure"
+msgstr "分割構成"
+
+msgid "Window Settings"
+msgstr "ウィンドウ単位の設定"
+
+msgid "Window Opacity"
+msgstr "ウィンドウ全体の不透明度"
+
+msgid "Window Terminal Font Size (pt)"
+msgstr "ウィンドウ全体のフォントサイズ (pt)"
+
+msgid "Window UI Font Size (pt)"
+msgstr "ウィンドウUI文字サイズ (pt)"
+
+msgid "Panel Settings"
+msgstr "パネル単位の設定"
+
+msgid "Pane"
+msgstr "パネル"
+
+msgid "Add Tab"
+msgstr "タブ追加"
+
+msgid "Remove Pane"
+msgstr "パネル削除"
+
+msgid "Pane Title"
+msgstr "パネルタイトル"
+
+msgid "Working Directory"
+msgstr "初期ディレクトリ (Working Directory)"
+
+msgid "Auto-Run Command"
+msgstr "自動実行コマンド"
+
+msgid "Panel Opacity"
+msgstr "パネル個別の不透明度"
+
+msgid "Panel Font Size (pt)"
+msgstr "パネル個別のフォントサイズ (pt)"
+
+msgid "Hierarchy"
+msgstr "階層構造"
+
+msgid "Window"
+msgstr "ウィンドウ"
+
+msgid "Select or create a preset on the left."
+msgstr "左側からプリセットを選択または作成してください。"
+
+msgid "Horizontal Split"
+msgstr "左右分割 (Horizontal Split)"
+
+msgid "Vertical Split"
+msgstr "上下分割 (Vertical Split)"
+
+msgid "Tabs"
+msgstr "タブグループ (Tabs)"

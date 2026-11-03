@@ -194,3 +194,114 @@ msgstr ""
 
 msgid "Loaded Translation Entries"
 msgstr ""
+
+msgid "Presets"
+msgstr ""
+
+msgid "Workspace Presets"
+msgstr ""
+
+msgid "Save and reproduce screen splits, initial working directories, startup commands, opacity, and font sizes."
+msgstr ""
+
+msgid "Preset Name (e.g. Dev Set)"
+msgstr ""
+
+msgid "Save Current Workspace"
+msgstr ""
+
+msgid "+ New Preset"
+msgstr ""
+
+msgid "Saved Presets"
+msgstr ""
+
+msgid "No Saved Presets"
+msgstr ""
+
+msgid "Panes"
+msgstr ""
+
+msgid "Run on Startup"
+msgstr ""
+
+msgid "Apply Now"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Overwrite with Current"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Preset Editor"
+msgstr ""
+
+msgid "Preset Name"
+msgstr ""
+
+msgid "Update Name"
+msgstr ""
+
+msgid "Split Structure"
+msgstr ""
+
+msgid "Window Settings"
+msgstr ""
+
+msgid "Window Opacity"
+msgstr ""
+
+msgid "Window Terminal Font Size (pt)"
+msgstr ""
+
+msgid "Window UI Font Size (pt)"
+msgstr ""
+
+msgid "Panel Settings"
+msgstr ""
+
+msgid "Pane"
+msgstr ""
+
+msgid "Add Tab"
+msgstr ""
+
+msgid "Remove Pane"
+msgstr ""
+
+msgid "Pane Title"
+msgstr ""
+
+msgid "Working Directory"
+msgstr ""
+
+msgid "Auto-Run Command"
+msgstr ""
+
+msgid "Panel Opacity"
+msgstr ""
+
+msgid "Panel Font Size (pt)"
+msgstr ""
+
+msgid "Hierarchy"
+msgstr ""
+
+msgid "Window"
+msgstr ""
+
+msgid "Select or create a preset on the left."
+msgstr ""
+
+msgid "Horizontal Split"
+msgstr ""
+
+msgid "Vertical Split"
+msgstr ""
+
+msgid "Tabs"
+msgstr ""

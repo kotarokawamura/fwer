@@ -100,7 +100,11 @@ fn populate_menu_entries(
                 let cb = Rc::clone(on_action);
                 btn.connect_clicked(move |_| {
                     pop_clone.popdown();
-                    cb(act.clone());
+                    let cb_deferred = Rc::clone(&cb);
+                    let act_deferred = act.clone();
+                    gtk4::glib::idle_add_local_once(move || {
+                        cb_deferred(act_deferred);
+                    });
                 });
 
                 container.append(&btn);

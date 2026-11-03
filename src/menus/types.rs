@@ -35,6 +35,7 @@ pub enum MenuAction {
     ToggleFullscreen,
     OpenSettings,
     ClosePane,
+    ApplyPreset(String),
     PluginCommand(String),
 }
 

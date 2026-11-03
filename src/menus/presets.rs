@@ -153,3 +153,32 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         },
     ]
 }
+
+pub fn build_presets_submenu(preset_names: &[String]) -> MenuEntry {
+    let entries = if preset_names.is_empty() {
+        vec![MenuEntry::Item {
+            icon: "∅".to_string(),
+            label: tr("No Saved Presets"),
+            shortcut: None,
+            action: MenuAction::OpenSettings,
+            enabled: false,
+        }]
+    } else {
+        preset_names
+            .iter()
+            .map(|name| MenuEntry::Item {
+                icon: "▶".to_string(),
+                label: name.clone(),
+                shortcut: None,
+                action: MenuAction::ApplyPreset(name.clone()),
+                enabled: true,
+            })
+            .collect()
+    };
+
+    MenuEntry::SubMenu {
+        icon: "🗂".to_string(),
+        label: tr("Presets"),
+        entries,
+    }
+}

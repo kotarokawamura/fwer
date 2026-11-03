@@ -165,8 +165,15 @@ impl TerminalBackend for Vte4Adapter {
             .unwrap_or_else(|| "/bin/bash".to_string());
 
         let cwd_path = working_dir
+            .filter(|p| p.is_dir())
             .map(|p| p.to_path_buf())
-            .or_else(|| std::env::current_dir().ok());
+            .or_else(|| std::env::current_dir().ok().filter(|p| p.is_dir()))
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_dir())
+            });
         self.initial_cwd = cwd_path.clone();
 
         let cwd_str = cwd_path
@@ -397,5 +404,19 @@ impl TerminalBackend for Vte4Adapter {
 
     fn set_on_scroll_changed(&mut self, cb: Box<dyn Fn(usize, usize) + 'static>) {
         *self.on_scroll_changed.borrow_mut() = Some(cb);
+    }
+
+    fn clear_callbacks(&mut self) {
+        *self.on_user_input.borrow_mut() = None;
+        *self.on_child_exited.borrow_mut() = None;
+        *self.on_scroll_changed.borrow_mut() = None;
+    }
+}
+
+impl Drop for Vte4Adapter {
+    fn drop(&mut self) {
+        *self.on_user_input.borrow_mut() = None;
+        *self.on_child_exited.borrow_mut() = None;
+        *self.on_scroll_changed.borrow_mut() = None;
     }
 }
