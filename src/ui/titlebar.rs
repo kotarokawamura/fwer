@@ -334,6 +334,14 @@ impl TitlebarWidget {
                     return;
                 }
 
+                // Ignore background clicks on the left grip button so its own click handler runs cleanly
+                if let Some(grip_bounds) = w.grip_btn.compute_bounds(&w.root)
+                    && grip_bounds
+                        .contains_point(&gtk4::graphene::Point::new(x as f32, y as f32))
+                {
+                    return;
+                }
+
                 // Check if click is inside the title label
                 if let Some(bounds) = w.title_label.compute_bounds(&w.root) {
                     if bounds.contains_point(&gtk4::graphene::Point::new(x as f32, y as f32)) {
@@ -541,6 +549,15 @@ impl TitlebarWidget {
             self.grip_btn.remove_css_class("fwer-grip-broadcast");
         }
 
+        if matches!(ctx.mode, InteractionMode::AdjustingOpacity(_)) {
+            self.grip_btn
+                .set_tooltip_text(Some("Click: Reset Pane Opacity to Default"));
+        } else {
+            self.grip_btn.set_tooltip_text(Some(
+                "Left-click: Move/Swap Pane | Right-click: Broadcast Group",
+            ));
+        }
+
         let (bg, fg) = resolve_titlebar_colors(ctx, settings);
         let bg_hex = format_rgb_hex(bg);
         let fg_hex = format_rgb_hex(fg);
@@ -554,11 +571,11 @@ impl TitlebarWidget {
         let btn_active_bg = darken_rgb(bg, 18);
         let btn_active_bg_hex = format_rgb_hex(btn_active_bg);
 
-        let ui_font_px = settings.effective_ui_font_size();
+        let ui_font_pt = settings.effective_ui_font_size();
         //TODO: title bar text has poor visibility.
-        let title_font_px = (ui_font_px - 1.5).clamp(9.0, 20.0);
-        let btn_font_px = (ui_font_px - 3.0).clamp(9.0, 18.0);
-        let bar_h = (title_font_px.round() as i32 + 10).max(20);
+        let title_font_pt = (ui_font_pt - 1.5).clamp(9.0, 20.0);
+        let btn_font_pt = (ui_font_pt - 3.0).clamp(9.0, 18.0);
+        let bar_h = (title_font_pt.round() as i32 + 10).max(20);
         let btn_h = (bar_h - 6).max(14);
         self.root.set_height_request(bar_h);
         let font_family = settings.effective_font_family();
@@ -574,18 +591,18 @@ impl TitlebarWidget {
                 border: 2px solid {frame_bg_hex};
                 box-shadow: inset 0 0 0 1px {frame_border_hex};
                 font-family: \"{font_family}\", monospace;
-                font-size: {title_font_px}px;
+                font-size: {title_font_pt}pt;
                 line-height: 1.0;
              }}
              .{scope} label {{
                 color: {fg_hex};
-                font-size: {title_font_px}px;
+                font-size: {title_font_pt}pt;
                 line-height: 1.0;
              }}
              .{scope} .fwer-tb-title {{
                 color: {fg_hex};
                 font-weight: bold;
-                font-size: {title_font_px}px;
+                font-size: {title_font_pt}pt;
                 line-height: 1.0;
                 text-shadow: none;
                 padding: 0 4px;
@@ -601,13 +618,13 @@ impl TitlebarWidget {
                 min-width: 16px;
                 padding: 0 3px;
                 margin: 0;
-                font-size: {btn_font_px}px;
+                font-size: {btn_font_pt}pt;
                 font-weight: normal;
                 line-height: 1.0;
              }}
              .{scope} button.fwer-tb-btn label {{
                 color: {fg_hex};
-                font-size: {btn_font_px}px;
+                font-size: {btn_font_pt}pt;
                 font-weight: normal;
                 line-height: 1.0;
                 text-shadow: none;
@@ -648,7 +665,7 @@ impl TitlebarWidget {
                 color: {fg_hex};
                 border: 1px solid {btn_border_hex};
                 border-radius: 3px;
-                font-size: {btn_font_px}px;
+                font-size: {btn_font_pt}pt;
                 font-weight: bold;
                 line-height: 1.0;
                 padding: 0 4px;
@@ -657,7 +674,7 @@ impl TitlebarWidget {
                 min-height: {btn_h}px;
                 padding: 0 3px;
                 border-radius: 2px;
-                font-size: {title_font_px}px;
+                font-size: {title_font_pt}pt;
                 line-height: 1.0;
              }}"
         );

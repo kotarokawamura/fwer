@@ -151,11 +151,11 @@ msgstr "システムフォント選択"
 msgid "Font File Path"
 msgstr "フォントファイルパス"
 
-msgid "UI / Menu Font Size (px)"
-msgstr "UI・メニュー文字サイズ (px)"
+msgid "UI / Menu Font Size (pt)"
+msgstr "UI・メニュー文字サイズ (pt)"
 
-msgid "Terminal Font Size (px)"
-msgstr "ターミナル文字サイズ (px)"
+msgid "Terminal Font Size (pt)"
+msgstr "ターミナル文字サイズ (pt)"
 
 msgid "Open Font Sample Catalog..."
 msgstr "フォントサンプル一覧を開く..."

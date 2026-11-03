@@ -129,10 +129,10 @@ msgstr ""
 msgid "Font File Path"
 msgstr ""
 
-msgid "UI / Menu Font Size (px)"
+msgid "UI / Menu Font Size (pt)"
 msgstr ""
 
-msgid "Terminal Font Size (px)"
+msgid "Terminal Font Size (pt)"
 msgstr ""
 
 msgid "Open Font Sample Catalog..."

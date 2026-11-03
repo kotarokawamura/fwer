@@ -106,7 +106,7 @@ define_special_modes! {
         shortcut_field: toggle_opacity_mode,
         css_class: "fwer-pane-opacity-source",
         border_rgb: "rgb(236, 72, 153)",
-        click_selects_pane: false,
+        click_selects_pane: true,
     },
 }
 

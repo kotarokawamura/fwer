@@ -23,6 +23,7 @@ use crate::vte::{TerminalBackend, create_terminal_backend};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecialModeKey {
     Move(Direction),
+    AdjustOpacity(i8),
     Confirm,
     KeepSelecting,
     Cancel,
@@ -34,6 +35,10 @@ pub enum PaneEvent {
     ClickedInSpecialMode {
         tile_id: TileId,
         keep_selecting: bool,
+    },
+    OpacityScroll {
+        tile_id: TileId,
+        delta: f32,
     },
     OpenPaneContextMenu {
         tile_id: TileId,
@@ -153,6 +158,9 @@ pub struct TerminalPaneWidget {
     current_mode: Rc<Cell<InteractionMode>>,
     is_hovered: Rc<Cell<bool>>,
     is_kb_target: Rc<Cell<bool>>,
+    is_opacity_source: Rc<Cell<bool>>,
+    opacity_confirmed: Rc<Cell<bool>>,
+    custom_opacity: Cell<Option<f32>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
     pinch_initial_zoom: Rc<Cell<f64>>,
 }
@@ -264,6 +272,9 @@ impl TerminalPaneWidget {
         let current_mode = Rc::new(Cell::new(InteractionMode::Normal));
         let is_hovered = Rc::new(Cell::new(false));
         let is_kb_target = Rc::new(Cell::new(false));
+        let is_opacity_source = Rc::new(Cell::new(false));
+        let opacity_confirmed = Rc::new(Cell::new(false));
+        let custom_opacity = Cell::new(None);
         let settings_cache = Rc::new(RefCell::new(settings.clone()));
         let pinch_initial_zoom = Rc::new(Cell::new(1.0));
 
@@ -278,6 +289,9 @@ impl TerminalPaneWidget {
             current_mode,
             is_hovered,
             is_kb_target,
+            is_opacity_source,
+            opacity_confirmed,
+            custom_opacity,
             settings_cache,
             pinch_initial_zoom,
         });
@@ -341,17 +355,33 @@ impl TerminalPaneWidget {
             term_widget.add_controller(click);
         }
 
-        // 2. Super + Mouse Wheel Scroll -> Per-pane zoom (Section 10.5.3)
+        // 2. Super + Mouse Wheel Scroll -> Per-pane zoom (Section 10.5.3) & Opacity Adjust Mode scroll
         {
             let scroll_ctrl =
                 gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
             scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             let pane_weak = Rc::downgrade(self);
+            let cb = Rc::clone(&on_event);
             scroll_ctrl.connect_scroll(move |ctrl, _dx, dy| {
                 let Some(pane) = pane_weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                if pane.current_mode.get() != InteractionMode::Normal {
+                let mode = pane.current_mode.get();
+                if matches!(mode, InteractionMode::AdjustingOpacity(_)) {
+                    if dy.abs() > 1e-4 {
+                        let delta = if dy.abs() >= 0.9 {
+                            if dy < 0.0 { 0.05 } else { -0.05 }
+                        } else {
+                            (-dy as f32 * 0.05).clamp(-0.05, 0.05)
+                        };
+                        cb(PaneEvent::OpacityScroll {
+                            tile_id: pane.tile_id,
+                            delta,
+                        });
+                    }
+                    return glib::Propagation::Stop;
+                }
+                if mode != InteractionMode::Normal {
                     return glib::Propagation::Stop;
                 }
                 let mods = ctrl.current_event_state();
@@ -432,6 +462,12 @@ impl TerminalPaneWidget {
                         }
                         gdk::Key::Down | gdk::Key::KP_Down | gdk::Key::j | gdk::Key::J => {
                             Some(SpecialModeKey::Move(Direction::Down))
+                        }
+                        gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => {
+                            Some(SpecialModeKey::AdjustOpacity(1))
+                        }
+                        gdk::Key::minus | gdk::Key::KP_Subtract => {
+                            Some(SpecialModeKey::AdjustOpacity(-1))
                         }
                         _ => None,
                     };
@@ -541,6 +577,41 @@ impl TerminalPaneWidget {
         self.refresh_highlight_frame();
     }
 
+    pub fn set_opacity_highlight(&self, is_source: bool, confirmed: bool) {
+        self.is_opacity_source.set(is_source);
+        self.opacity_confirmed.set(confirmed);
+        self.refresh_highlight_frame();
+    }
+
+    pub fn custom_opacity(&self) -> Option<f32> {
+        self.custom_opacity.get()
+    }
+
+    pub fn effective_opacity(&self, settings: &ThemeSettings) -> f32 {
+        self.custom_opacity
+            .get()
+            .unwrap_or_else(|| settings.effective_terminal_bg_opacity())
+            .clamp(0.0, 1.0)
+    }
+
+    pub fn set_custom_opacity(&self, opacity: Option<f32>) {
+        self.custom_opacity.set(opacity.map(|v| v.clamp(0.0, 1.0)));
+        let settings = self.settings_cache.borrow().clone();
+        self.apply_effective_theme(&settings);
+    }
+
+    pub fn adjust_custom_opacity_by(&self, delta: f32, settings: &ThemeSettings) {
+        let base = self.effective_opacity(settings);
+        let next = (base + delta).clamp(0.0, 1.0);
+        self.set_custom_opacity(Some(next));
+    }
+
+    fn apply_effective_theme(&self, settings: &ThemeSettings) {
+        let mut eff = settings.clone();
+        eff.terminal_bg_opacity = self.effective_opacity(settings);
+        self.backend.borrow_mut().apply_theme(&eff);
+    }
+
     pub fn refresh_highlight_frame(&self) {
         let mode = self.current_mode.get();
 
@@ -549,6 +620,17 @@ impl TerminalPaneWidget {
         }
         self.highlight_frame
             .remove_css_class("fwer-pane-target-hover");
+
+        if matches!(mode, InteractionMode::AdjustingOpacity(_)) {
+            if self.is_opacity_source.get() {
+                self.highlight_frame.add_css_class("fwer-pane-opacity-source");
+            } else if !self.opacity_confirmed.get()
+                && (self.is_hovered.get() || self.is_kb_target.get())
+            {
+                self.highlight_frame.add_css_class("fwer-pane-target-hover");
+            }
+            return;
+        }
 
         if let Some(cls) = mode.source_css_class(self.tile_id) {
             self.highlight_frame.add_css_class(cls);
@@ -610,7 +692,7 @@ impl TerminalPaneWidget {
 
         self.scrollbar.set_visible(settings.show_scrollbar);
         self.titlebar.update_appearance(ctx, settings);
-        self.backend.borrow_mut().apply_theme(settings);
+        self.apply_effective_theme(settings);
         self.refresh_highlight_frame();
     }
 }

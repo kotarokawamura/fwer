@@ -151,11 +151,11 @@ msgstr "System Font"
 msgid "Font File Path"
 msgstr "Font File Path"
 
-msgid "UI / Menu Font Size (px)"
-msgstr "UI / Menu Font Size (px)"
+msgid "UI / Menu Font Size (pt)"
+msgstr "UI / Menu Font Size (pt)"
 
-msgid "Terminal Font Size (px)"
-msgstr "Terminal Font Size (px)"
+msgid "Terminal Font Size (pt)"
+msgstr "Terminal Font Size (pt)"
 
 msgid "Open Font Sample Catalog..."
 msgstr "Open Font Sample Catalog..."

@@ -222,16 +222,7 @@ impl PreferencesWindow {
         body_box.set_hexpand(true);
         body_box.set_vexpand(true);
 
-        let scrolled = gtk4::ScrolledWindow::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .margin_top(8)
-            .margin_bottom(8)
-            .margin_start(12)
-            .margin_end(12)
-            .child(&self.stack)
-            .build();
-        body_box.append(&scrolled);
+        body_box.append(&self.stack);
         body_box.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
         let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -363,6 +354,18 @@ impl PreferencesWindow {
         self.window.add_controller(key_ctrl);
     }
 
+    fn wrap_tab_scrolled(child: &impl IsA<gtk4::Widget>) -> gtk4::ScrolledWindow {
+        gtk4::ScrolledWindow::builder()
+            .hexpand(true)
+            .vexpand(true)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .child(child)
+            .build()
+    }
+
     fn rebuild_tabs(self: &Rc<Self>) {
         let cur_tab = self
             .stack
@@ -374,16 +377,16 @@ impl PreferencesWindow {
             self.stack.remove(&child);
         }
 
-        let tab1 = self.build_titlebar_and_frame_tab();
-        let tab2 = if cur_tab == "font" {
+        let tab1 = Self::wrap_tab_scrolled(&self.build_titlebar_and_frame_tab());
+        let tab2: gtk4::Widget = if cur_tab == "font" {
             self.font_tab_populated.set(true);
-            self.build_font_tab()
+            Self::wrap_tab_scrolled(&self.build_font_tab()).upcast()
         } else {
             self.font_tab_populated.set(false);
             gtk4::Box::new(gtk4::Orientation::Vertical, 0).upcast()
         };
-        let tab3 = self.build_shortcuts_tab();
-        let tab4 = self.build_language_tab();
+        let tab3 = Self::wrap_tab_scrolled(&self.build_shortcuts_tab());
+        let tab4 = Self::wrap_tab_scrolled(&self.build_language_tab());
 
         self.stack.add_named(&tab1, Some("titlebar"));
         self.stack.add_named(&tab2, Some("font"));
@@ -397,7 +400,7 @@ impl PreferencesWindow {
         if let Some(old_font_tab) = self.stack.child_by_name("font") {
             self.stack.remove(&old_font_tab);
         }
-        let tab2 = self.build_font_tab();
+        let tab2 = Self::wrap_tab_scrolled(&self.build_font_tab());
         self.stack.add_named(&tab2, Some("font"));
         self.font_tab_populated.set(true);
     }
@@ -952,7 +955,7 @@ impl PreferencesWindow {
                 let attrs = pango::AttrList::new();
                 let mut desc = pango::FontDescription::new();
                 desc.set_family(&format!("{fam}, Monospace"));
-                desc.set_size(((sz as f64 * 0.75).max(6.0) * pango::SCALE as f64) as i32);
+                desc.set_size(((sz as f64).max(6.0) * pango::SCALE as f64) as i32);
                 attrs.insert(pango::AttrFontDesc::new(&desc));
                 lbl_clone.set_attributes(Some(&attrs));
             }
@@ -1010,24 +1013,24 @@ impl PreferencesWindow {
 
         self.add_slider_row(
             &vbox,
-            &tr("UI / Menu Font Size (px)"),
+            &tr("UI / Menu Font Size (pt)"),
             s.effective_ui_font_size().clamp(9.0, 28.0) as f64,
             9.0,
             28.0,
-            1.0,
-            0,
+            0.5,
+            1,
             |st, v| st.ui_font_size = v as f32,
         );
         {
             let upd_prev = update_preview.clone();
             self.add_slider_row(
                 &vbox,
-                &tr("Terminal Font Size (px)"),
+                &tr("Terminal Font Size (pt)"),
                 s.effective_terminal_font_size().clamp(8.0, 36.0) as f64,
                 8.0,
                 36.0,
-                1.0,
-                0,
+                0.5,
+                1,
                 move |st, v| {
                     st.terminal_font_size = v as f32;
                     upd_prev(st);

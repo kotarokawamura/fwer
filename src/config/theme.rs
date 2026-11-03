@@ -222,8 +222,8 @@ impl Default for ThemeSettings {
             target_fps: 30,
             show_scrollbar: true,
             font_path: default_debian_cjk_fallback(),
-            ui_font_size: 13.0,
-            terminal_font_size: 14.0,
+            ui_font_size: 15.0,
+            terminal_font_size: 15.0,
             language: "auto".to_string(),
             custom_po_path: String::new(),
             shortcuts: ShortcutSettings::default(),
@@ -301,7 +301,6 @@ impl ThemeSettings {
     pub fn effective_title_inactive_bg(&self) -> RgbColor {
         parse_color(&self.title_inactive_bg).unwrap_or(RgbColor(75, 75, 75))
     }
-
     pub fn effective_title_inactive_fg(&self) -> RgbColor {
         parse_color(&self.title_inactive_fg).unwrap_or(RgbColor(210, 210, 210))
     }
@@ -632,11 +631,7 @@ pub fn extract_font_family_from_path(path_str: &str) -> Option<String> {
     let resolved = if let Some(family) = extract_font_family_from_file_fast(path) {
         Some(family)
     } else if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-        let base = stem
-            .split('-')
-            .next()
-            .unwrap_or(stem)
-            .replace('_', " ");
+        let base = stem.split('-').next().unwrap_or(stem).replace('_', " ");
         let lower = base.to_ascii_lowercase();
         if lower.contains("notosansmonocjkjp") {
             Some("Noto Sans Mono CJK JP".to_string())
@@ -683,9 +678,12 @@ pub fn extract_font_family_from_bytes(bytes: &[u8]) -> Option<String> {
             break;
         }
         if &bytes[rec..rec + 4] == b"name" {
-            let offset =
-                u32::from_be_bytes([bytes[rec + 8], bytes[rec + 9], bytes[rec + 10], bytes[rec + 11]])
-                    as usize;
+            let offset = u32::from_be_bytes([
+                bytes[rec + 8],
+                bytes[rec + 9],
+                bytes[rec + 10],
+                bytes[rec + 11],
+            ]) as usize;
             let length = u32::from_be_bytes([
                 bytes[rec + 12],
                 bytes[rec + 13],
@@ -1132,8 +1130,7 @@ pub fn matches_gdk_shortcut(spec: &str, key: gdk::Key, mods: gdk::ModifierType) 
         return false;
     };
     let ctrl = mods.contains(gdk::ModifierType::CONTROL_MASK);
-    let shift =
-        mods.contains(gdk::ModifierType::SHIFT_MASK) || key == gdk::Key::ISO_Left_Tab;
+    let shift = mods.contains(gdk::ModifierType::SHIFT_MASK) || key == gdk::Key::ISO_Left_Tab;
     let alt = mods.contains(gdk::ModifierType::ALT_MASK);
     let super_key =
         mods.contains(gdk::ModifierType::SUPER_MASK) || mods.contains(gdk::ModifierType::META_MASK);
@@ -1145,8 +1142,7 @@ pub fn matches_gdk_shortcut(spec: &str, key: gdk::Key, mods: gdk::ModifierType) 
 pub fn format_recorded_shortcut(key: gdk::Key, mods: gdk::ModifierType) -> Option<String> {
     let key_name = gdk_key_to_canonical_name(key)?;
     let mut parts = Vec::new();
-    if mods.contains(gdk::ModifierType::SUPER_MASK) || mods.contains(gdk::ModifierType::META_MASK)
-    {
+    if mods.contains(gdk::ModifierType::SUPER_MASK) || mods.contains(gdk::ModifierType::META_MASK) {
         parts.push("Super".to_string());
     }
     if mods.contains(gdk::ModifierType::CONTROL_MASK) {

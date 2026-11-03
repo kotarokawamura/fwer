@@ -37,6 +37,8 @@ pub struct Workspace {
     pane_widgets: RefCell<HashMap<TileId, Rc<TerminalPaneWidget>>>,
     mode: Cell<InteractionMode>,
     kb_target_pane: Cell<Option<TileId>>,
+    opacity_selected_panes: RefCell<Vec<TileId>>,
+    opacity_confirmed: Cell<bool>,
     modal_blocked: Cell<bool>,
     window_focused: Cell<bool>,
     settings: RefCell<ThemeSettings>,
@@ -79,6 +81,8 @@ impl Workspace {
             pane_widgets: RefCell::new(HashMap::new()),
             mode: Cell::new(InteractionMode::Normal),
             kb_target_pane: Cell::new(None),
+            opacity_selected_panes: RefCell::new(Vec::new()),
+            opacity_confirmed: Cell::new(false),
             modal_blocked: Cell::new(false),
             window_focused: Cell::new(true),
             settings: RefCell::new(initial_settings),
@@ -122,11 +126,17 @@ impl Workspace {
         self.modal_blocked.set(blocked);
         if blocked {
             self.mode.set(InteractionMode::BlockedByModal);
-            self.kb_target_pane.set(None);
+            self.reset_opacity_mode_state();
         } else if self.mode.get() == InteractionMode::BlockedByModal {
             self.mode.set(InteractionMode::Normal);
         }
         self.refresh_all_panes();
+    }
+
+    fn reset_opacity_mode_state(&self) {
+        self.kb_target_pane.set(None);
+        self.opacity_selected_panes.borrow_mut().clear();
+        self.opacity_confirmed.set(false);
     }
 
     pub fn apply_settings(self: &Rc<Self>, new_settings: ThemeSettings) {
@@ -144,22 +154,20 @@ impl Workspace {
         let sep_hex = format_rgb_hex(s.effective_separator_rgb());
         let sep_border_hex = format_rgb_hex(s.effective_separator_border_rgb());
         let sep_w = s.effective_separator_width().round() as i32;
-        let frame_bg = s.effective_frame_bg_rgb();
         let frame_border = format_rgb_hex(s.effective_frame_border_rgb());
         let border_w = s.effective_border_width().round() as i32;
-        let opacity = s.effective_terminal_bg_opacity();
-        let ui_font_px = s.effective_ui_font_size();
+        let ui_font_pt = s.effective_ui_font_size();
         let font_family = s.effective_font_family();
 
         let css = format!(
-           "window:not(.fwer-prefs-window) {{
+           "window.fwer-main-window {{
                 background-color: transparent;
              }}
              terminal, vte-terminal {{
                 background-color: transparent;
              }}
              .fwer-window-frame {{
-                background-color: rgba({}, {}, {}, {:.3});
+                background-color: transparent;
                 border: {border_w}px solid {frame_border};
                 padding: 0px; /* GTKテーマ由来の隙間を消去 */
                 margin: 0px;
@@ -230,7 +238,7 @@ impl Workspace {
                 padding: 2px 6px;
                 border-radius: 4px;
                 font-family: \"{font_family}\", monospace;
-                font-size: {ui_font_px}px;
+                font-size: {ui_font_pt}pt;
              }}
              .fwer-context-popover contents {{
                 background-color: #252526;
@@ -238,7 +246,7 @@ impl Workspace {
                 border: 1px solid #5a5a5a;
                 border-radius: 6px;
                 font-family: \"{font_family}\", monospace;
-                font-size: {ui_font_px}px;
+                font-size: {ui_font_pt}pt;
              }}
              .fwer-menu-item {{
                 color: #e6e6e6;
@@ -250,7 +258,7 @@ impl Workspace {
              }}
              .fwer-menu-shortcut {{
                 color: #9da5b4;
-                font-size: {:.1}px;
+                font-size: {:.1}pt;
                 margin-left: 16px;
              }}
              .fwer-workspace paned > separator,
@@ -269,11 +277,7 @@ impl Workspace {
                 min-width: {sep_w}px;
                 min-height: {sep_w}px;
              }}",
-            frame_bg.0,
-            frame_bg.1,
-            frame_bg.2,
-            opacity,
-            (ui_font_px - 1.0).max(8.0)
+            (ui_font_pt - 1.0).max(8.0)
         );
         if *self.last_global_css.borrow() != css {
             *self.last_global_css.borrow_mut() = css.clone();
@@ -348,7 +352,25 @@ impl Workspace {
                         self.refresh_all_panes();
                         self.focus_active_pane();
                     }
+
+                    InteractionMode::AdjustingOpacity(_) => {
+                        if self.opacity_confirmed.get() && !keep_selecting {
+                            self.mode.set(InteractionMode::Normal);
+                            self.reset_opacity_mode_state();
+                            let _ = self.settings().save();
+                        } else {
+                            self.select_opacity_pane(tile_id, keep_selecting);
+                        }
+                        self.refresh_all_panes();
+                        self.focus_active_pane();
+                    }
                     _ => {}
+                }
+            }
+            PaneEvent::OpacityScroll { tile_id: _, delta } => {
+                if matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_)) {
+                    self.apply_opacity_delta(delta);
+                    self.focus_active_pane();
                 }
             }
             PaneEvent::OpenPaneContextMenu { tile_id, x, y } => {
@@ -361,8 +383,12 @@ impl Workspace {
                 self.handle_special_mode_key(tile_id, key);
             }
             PaneEvent::CancelSpecialMode => {
+                let was_opacity = matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_));
                 self.mode.set(InteractionMode::Normal);
-                self.kb_target_pane.set(None);
+                self.reset_opacity_mode_state();
+                if was_opacity {
+                    let _ = self.settings().save();
+                }
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -384,26 +410,108 @@ impl Workspace {
         }
     }
 
+    fn select_opacity_pane(&self, tile_id: TileId, keep_selecting: bool) {
+        self.kb_target_pane.set(Some(tile_id));
+        let mut selected = self.opacity_selected_panes.borrow_mut();
+        if keep_selecting {
+            if let Some(pos) = selected.iter().position(|&id| id == tile_id) {
+                selected.remove(pos);
+            } else {
+                selected.push(tile_id);
+            }
+        } else {
+            if !selected.contains(&tile_id) {
+                selected.push(tile_id);
+            }
+            self.opacity_confirmed.set(true);
+        }
+    }
+
+    fn apply_opacity_delta(self: &Rc<Self>, delta: f32) {
+        let selected = self.opacity_selected_panes.borrow().clone();
+        let kb_target = self.kb_target_pane.get();
+        let confirmed = self.opacity_confirmed.get();
+
+        if !confirmed && selected.is_empty() && kb_target.is_none() {
+            let mut current_settings = self.settings.borrow().clone();
+            current_settings.terminal_bg_opacity =
+                (current_settings.terminal_bg_opacity + delta).clamp(0.0, 1.0);
+            self.apply_settings(current_settings);
+            return;
+        }
+
+        let mut targets = selected;
+        if !confirmed
+            && let Some(kb_id) = kb_target
+            && !targets.contains(&kb_id)
+        {
+            targets.push(kb_id);
+        }
+
+        let settings = self.settings.borrow().clone();
+        {
+            let widgets = self.pane_widgets.borrow();
+            for target_id in targets {
+                if let Some(pane) = widgets.get(&target_id) {
+                    pane.adjust_custom_opacity_by(delta, &settings);
+                }
+            }
+        }
+        self.refresh_all_panes();
+    }
+
     fn handle_special_mode_key(self: &Rc<Self>, tile_id: TileId, key: SpecialModeKey) {
         match self.mode.get() {
-            InteractionMode::AdjustingOpacity(_) => match key {
-                SpecialModeKey::Move(dir) => {
-                    let mut current_settings = self.settings.borrow().clone();
-                    let step = 0.05;
-                    let current_opacity = current_settings.terminal_bg_opacity;
-                    let next_opacity = match dir {
-                        Direction::Up | Direction::Right => (current_opacity + step).min(1.0),
-                        Direction::Down | Direction::Left => (current_opacity - step).max(0.0),
-                    };
-                    current_settings.terminal_bg_opacity = next_opacity;
-                    self.apply_settings(current_settings);
+            InteractionMode::AdjustingOpacity(src_id) => match key {
+                SpecialModeKey::AdjustOpacity(sign) => {
+                    self.apply_opacity_delta(sign as f32 * 0.05);
                     self.focus_active_pane();
                 }
-                SpecialModeKey::Confirm
-                | SpecialModeKey::KeepSelecting
-                | SpecialModeKey::Cancel => {
+                SpecialModeKey::Move(dir) => {
+                    let single_pane = self.pane_widgets.borrow().len() <= 1;
+                    let is_initial = !self.opacity_confirmed.get()
+                        && self.opacity_selected_panes.borrow().is_empty()
+                        && self.kb_target_pane.get().is_none();
+
+                    if self.opacity_confirmed.get() || (is_initial && single_pane) {
+                        let delta = match dir {
+                            Direction::Up | Direction::Right => 0.05,
+                            Direction::Down | Direction::Left => -0.05,
+                        };
+                        self.apply_opacity_delta(delta);
+                        self.focus_active_pane();
+                    } else {
+                        let cur_target = self.kb_target_pane.get().unwrap_or(src_id);
+                        if let Some(next_target) = self.find_neighbor_pane(cur_target, dir) {
+                            self.kb_target_pane.set(Some(next_target));
+                        } else if self.kb_target_pane.get().is_none() {
+                            self.kb_target_pane.set(Some(src_id));
+                        }
+                        self.refresh_all_panes();
+                        self.focus_active_pane();
+                    }
+                }
+                SpecialModeKey::KeepSelecting => {
+                    let target = self.kb_target_pane.get().unwrap_or(src_id);
+                    self.select_opacity_pane(target, true);
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+                SpecialModeKey::Confirm => {
+                    if self.opacity_confirmed.get() {
+                        self.mode.set(InteractionMode::Normal);
+                        self.reset_opacity_mode_state();
+                        let _ = self.settings().save();
+                    } else {
+                        let target = self.kb_target_pane.get().unwrap_or(src_id);
+                        self.select_opacity_pane(target, false);
+                    }
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                }
+                SpecialModeKey::Cancel => {
                     self.mode.set(InteractionMode::Normal);
-                    self.kb_target_pane.set(None);
+                    self.reset_opacity_mode_state();
                     let _ = self.settings().save();
                     self.refresh_all_panes();
                     self.focus_active_pane();
@@ -421,6 +529,7 @@ impl Workspace {
                         self.focus_active_pane();
                     }
                 }
+                SpecialModeKey::AdjustOpacity(_) => {}
                 SpecialModeKey::Confirm
                 | SpecialModeKey::KeepSelecting
                 | SpecialModeKey::Cancel => {
@@ -442,6 +551,7 @@ impl Workspace {
                         }
                     }
                 }
+                SpecialModeKey::AdjustOpacity(_) => {}
                 SpecialModeKey::Confirm
                 | SpecialModeKey::KeepSelecting
                 | SpecialModeKey::Cancel => {
@@ -459,6 +569,7 @@ impl Workspace {
                         self.refresh_all_panes();
                     }
                 }
+                SpecialModeKey::AdjustOpacity(_) => {}
                 SpecialModeKey::KeepSelecting => {
                     let target = self.kb_target_pane.get().unwrap_or(tile_id);
                     self.toggle_or_link_broadcast(src_id, target);
@@ -581,7 +692,9 @@ impl Workspace {
             TitlebarEvent::FocusPane(tile_id) => {
                 if matches!(
                     self.mode.get(),
-                    InteractionMode::MovingPane(_) | InteractionMode::SelectingBroadcast(_)
+                    InteractionMode::MovingPane(_)
+                        | InteractionMode::SelectingBroadcast(_)
+                        | InteractionMode::AdjustingOpacity(_)
                 ) {
                     self.handle_pane_event(PaneEvent::ClickedInSpecialMode {
                         tile_id,
@@ -599,11 +712,19 @@ impl Workspace {
                 self.focus_active_pane();
             }
             TitlebarEvent::ToggleMoveMode(tile_id) => {
+                if matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_)) {
+                    if let Some(pane) = self.pane_widgets.borrow().get(&tile_id) {
+                        pane.set_custom_opacity(None);
+                    }
+                    self.refresh_all_panes();
+                    self.focus_active_pane();
+                    return;
+                }
                 self.commit_any_active_title_edit();
                 self.tree.borrow_mut().set_active_pane(tile_id);
                 let next = next_mode_on_grip_click(self.mode.get(), tile_id, false);
                 self.mode.set(next);
-                self.kb_target_pane.set(None);
+                self.reset_opacity_mode_state();
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -612,6 +733,7 @@ impl Workspace {
                 self.tree.borrow_mut().set_active_pane(tile_id);
                 let next = next_mode_on_grip_click(self.mode.get(), tile_id, true);
                 self.mode.set(next);
+                self.reset_opacity_mode_state();
                 self.kb_target_pane.set(Some(tile_id));
                 self.refresh_all_panes();
                 self.focus_active_pane();
@@ -741,7 +863,7 @@ impl Workspace {
                     InteractionMode::MovingPane(tile_id)
                 };
                 self.mode.set(next);
-                self.kb_target_pane.set(None);
+                self.reset_opacity_mode_state();
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -753,7 +875,7 @@ impl Workspace {
                     InteractionMode::ResizingPane(tile_id)
                 };
                 self.mode.set(next);
-                self.kb_target_pane.set(None);
+                self.reset_opacity_mode_state();
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -765,19 +887,24 @@ impl Workspace {
                     InteractionMode::SelectingBroadcast(tile_id)
                 };
                 self.mode.set(next);
+                self.reset_opacity_mode_state();
                 self.kb_target_pane.set(Some(tile_id));
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
             PaneShortcutAction::ToggleOpacityMode => {
                 self.commit_any_active_title_edit();
-                let next = if matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_)) {
+                let was_opacity = matches!(self.mode.get(), InteractionMode::AdjustingOpacity(_));
+                let next = if was_opacity {
                     InteractionMode::Normal
                 } else {
                     InteractionMode::AdjustingOpacity(tile_id)
                 };
                 self.mode.set(next);
-                self.kb_target_pane.set(None);
+                self.reset_opacity_mode_state();
+                if was_opacity {
+                    let _ = self.settings().save();
+                }
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
@@ -838,7 +965,7 @@ impl Workspace {
             return;
         }
         self.mode.set(InteractionMode::Normal);
-        self.kb_target_pane.set(None);
+        self.reset_opacity_mode_state();
         self.rebuild_gtk_tree();
         self.refresh_all_panes();
         self.focus_active_pane();
@@ -877,7 +1004,7 @@ impl Workspace {
 
         *self.tree.borrow_mut() = new_tree;
         self.mode.set(InteractionMode::Normal);
-        self.kb_target_pane.set(None);
+        self.reset_opacity_mode_state();
 
         for (id, title, cmd) in panes_to_spawn {
             self.spawn_and_register_pane(id, &title, None, cmd.as_deref());
@@ -1145,6 +1272,12 @@ impl Workspace {
         let top_right_id = tree.top_right_pane_id();
         let mode = self.mode.get();
         let kb_target = self.kb_target_pane.get();
+        let opacity_selected = self.opacity_selected_panes.borrow();
+        let opacity_confirmed = self.opacity_confirmed.get();
+        let opacity_initial = matches!(mode, InteractionMode::AdjustingOpacity(_))
+            && !opacity_confirmed
+            && opacity_selected.is_empty()
+            && kb_target.is_none();
         let win_focused = self.window_focused.get();
         let settings = self.settings.borrow().clone();
         let widgets = self.pane_widgets.borrow();
@@ -1159,6 +1292,8 @@ impl Workspace {
                 pane.titlebar.set_title(&meta.title);
             }
             pane.set_keyboard_target(kb_target == Some(tile_id));
+            let is_opacity_src = opacity_initial || opacity_selected.contains(&tile_id);
+            pane.set_opacity_highlight(is_opacity_src, opacity_confirmed);
             let ctx = PaneContext {
                 tile_id,
                 is_active: win_focused && active_id == Some(tile_id),

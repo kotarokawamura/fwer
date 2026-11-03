@@ -102,6 +102,7 @@ impl FwerApp {
             .width_request(400)
             .height_request(260)
             .build();
+        window.add_css_class("fwer-main-window");
 
         let frame_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         frame_box.set_hexpand(true);

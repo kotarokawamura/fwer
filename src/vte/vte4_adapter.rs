@@ -335,7 +335,7 @@ impl TerminalBackend for Vte4Adapter {
 
         if self.last_font != Some(font_key) {
             self.last_font = Some((family.clone(), term_size.to_bits()));
-            let size_pt = (term_size as f64 * 0.75).max(6.0);
+            let size_pt = (term_size as f64).max(6.0);
             let mut font_desc = pango::FontDescription::new();
             font_desc.set_family(&family);
             font_desc.set_size((size_pt * pango::SCALE as f64) as i32);

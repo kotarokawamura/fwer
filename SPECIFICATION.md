@@ -135,8 +135,8 @@ termin/
 | `target_fps` | `u32` | `30` | `1..=240` (FPS) にクランプ（`0` の場合はロード時に `30` に補正） |
 | `show_scrollbar` | `bool` | `true` | 各ペイン右端のスクロールバー表示有無 |
 | `font_path` | `String` | 自動検出パス | Debian 系システムの日本語対応等幅フォントを自動検出 |
-| `ui_font_size` | `f32` | `13.0` | `8.0..=32.0` (px) にクランプ（UIスライダー範囲は `9.0..=28.0`） |
-| `terminal_font_size` | `f32` | `14.0` | `8.0..=48.0` (px) にクランプ（UIスライダー範囲は `8.0..=36.0`） |
+| `ui_font_size` | `f32` | `15.0` | `8.0..=32.0` (pt) にクランプ（UIスライダー範囲は `9.0..=28.0`） |
+| `terminal_font_size` | `f32` | `15.0` | `8.0..=48.0` (pt) にクランプ（UIスライダー範囲は `8.0..=36.0`） |
 | `language` | `String` | `"auto"` | `"auto"`, `"en"`, `"ja"`, または検出された `.po` 言語コード |
 | `custom_po_path` | `String` | `""` | 任意の `.po` ファイルへのパス（指定時は `language` より優先） |
 | `shortcuts` | `ShortcutSettings` | 下記参照 | キーボードショートカット設定 |
