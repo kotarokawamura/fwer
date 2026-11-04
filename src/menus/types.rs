@@ -30,6 +30,7 @@ pub enum MenuAction {
     SplitVertical,
     NewTab,
     ClearScrollback,
+    ToggleScrollbar,
     SaveLayout,
     LoadLayout,
     ToggleFullscreen,

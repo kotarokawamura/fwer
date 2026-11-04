@@ -60,6 +60,13 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
             action: MenuAction::ClearScrollback,
             enabled: true,
         },
+        MenuEntry::Item {
+            icon: "📜".to_string(),
+            label: tr("Toggle Scrollbar"),
+            shortcut: Some(sc.toggle_scrollbar.clone()),
+            action: MenuAction::ToggleScrollbar,
+            enabled: true,
+        },
         MenuEntry::Separator,
         MenuEntry::Item {
             icon: "⚙".to_string(),
@@ -129,6 +136,13 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
             ],
         },
         MenuEntry::Separator,
+        MenuEntry::Item {
+            icon: "📜".to_string(),
+            label: tr("Toggle Scrollbar"),
+            shortcut: Some(sc.toggle_scrollbar.clone()),
+            action: MenuAction::ToggleScrollbar,
+            enabled: true,
+        },
         MenuEntry::Item {
             icon: "⛶".to_string(),
             label: tr("Toggle Fullscreen"),

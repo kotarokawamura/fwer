@@ -1847,6 +1847,7 @@ impl PreferencesWindow {
                             working_dir: None,
                             opacity: None,
                             font_size: None,
+                            show_scrollbar: None,
                         },
                     };
                     st.upsert(preset);
@@ -2673,6 +2674,75 @@ impl PreferencesWindow {
                 p_fs_row.append(&p_fs_chk);
                 p_fs_row.append(&p_fs_scale);
                 col3.append(&p_fs_row);
+
+                // Panel Show Scrollbar row (defaults to original global setting when None)
+                let default_sb = self.workspace.settings().show_scrollbar;
+                let effective_sb = cfg.show_scrollbar.unwrap_or(default_sb);
+                let p_sb_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let p_sb_chk = gtk4::CheckButton::with_label(&tr("Show Scrollbar"));
+                p_sb_chk.set_active(effective_sb);
+                p_sb_chk.set_hexpand(true);
+
+                let p_sb_status = gtk4::Label::new(Some(&if cfg.show_scrollbar.is_some() {
+                    tr("Applied")
+                } else {
+                    tr("Using Default")
+                }));
+                p_sb_status.add_css_class("dim-label");
+
+                let p_sb_def_btn = gtk4::Button::with_label(&tr("Default"));
+                p_sb_def_btn.set_sensitive(cfg.show_scrollbar.is_some());
+
+                let sb_updating = Rc::new(Cell::new(false));
+                {
+                    let upd = Rc::clone(&sb_updating);
+                    let st_lbl = p_sb_status.clone();
+                    let def_btn = p_sb_def_btn.clone();
+                    p_sb_chk.connect_toggled(move |chk| {
+                        if upd.get() {
+                            return;
+                        }
+                        let active = chk.is_active();
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.show_scrollbar = Some(active);
+                            });
+                            let _ = st.save();
+                        }
+                        st_lbl.set_text(&tr("Applied"));
+                        def_btn.set_sensitive(true);
+                    });
+                }
+                {
+                    let upd = Rc::clone(&sb_updating);
+                    let chk_c = p_sb_chk.clone();
+                    let st_lbl = p_sb_status.clone();
+                    let p_weak = Rc::downgrade(self);
+                    p_sb_def_btn.connect_clicked(move |btn| {
+                        let orig = p_weak
+                            .upgrade()
+                            .map(|p| p.workspace.settings().show_scrollbar)
+                            .unwrap_or(default_sb);
+                        upd.set(true);
+                        chk_c.set_active(orig);
+                        upd.set(false);
+                        let mut st = PresetStore::load();
+                        if let Some(pr) = st.presets.get_mut(selected_idx) {
+                            pr.root.update_pane_at(pane_idx, |c| {
+                                c.show_scrollbar = None;
+                            });
+                            let _ = st.save();
+                        }
+                        st_lbl.set_text(&tr("Using Default"));
+                        btn.set_sensitive(false);
+                    });
+                }
+
+                p_sb_row.append(&p_sb_chk);
+                p_sb_row.append(&p_sb_status);
+                p_sb_row.append(&p_sb_def_btn);
+                col3.append(&p_sb_row);
             }
         }
 

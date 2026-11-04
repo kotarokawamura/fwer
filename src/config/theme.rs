@@ -177,6 +177,7 @@ define_shortcuts! {
     toggle_resize_mode => { label: "Split Resize Mode", default: "Ctrl+Shift+R", action: ToggleResizeMode },
     toggle_broadcast_mode => { label: "Broadcast Mode", default: "Ctrl+Shift+B", action: ToggleBroadcastMode },
     toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+0", action: ToggleOpacityMode },
+    toggle_scrollbar => { label: "Toggle Scrollbar", default: "Ctrl+Shift+L", action: ToggleScrollbar },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

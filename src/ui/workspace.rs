@@ -947,6 +947,11 @@ impl Workspace {
                 self.refresh_all_panes();
                 self.focus_active_pane();
             }
+            PaneShortcutAction::ToggleScrollbar => {
+                if let Some(pane) = self.pane_widgets.borrow().get(&tile_id) {
+                    pane.toggle_scrollbar();
+                }
+            }
         }
     }
 
@@ -1013,8 +1018,34 @@ impl Workspace {
 
     pub fn save_current_layout(&self) -> Result<std::path::PathBuf, String> {
         let tree = self.tree.borrow();
-        let node =
-            LayoutNode::from_tree(&tree).ok_or_else(|| "Empty workspace tree".to_string())?;
+        let panes = self.pane_widgets.borrow();
+        let node = LayoutNode::from_tree_with_configs(&tree, |id| {
+            let meta = tree.panes.get(&id);
+            let title = meta
+                .map(|m| m.title.clone())
+                .unwrap_or_else(|| "/bin/bash".to_string());
+            let widget = panes.get(&id);
+            let command = widget
+                .and_then(|w| w.startup_command())
+                .or_else(|| meta.and_then(|m| m.command.clone()))
+                .filter(|s| !s.trim().is_empty());
+            let working_dir = widget
+                .and_then(|w| w.current_working_dir())
+                .map(|p| p.to_string_lossy().to_string())
+                .filter(|s| !s.trim().is_empty());
+            let opacity = widget.and_then(|w| w.custom_opacity());
+            let font_size = widget.and_then(|w| w.custom_font_size());
+            let show_scrollbar = widget.and_then(|w| w.custom_show_scrollbar());
+            PanePresetConfig {
+                title,
+                command,
+                working_dir,
+                opacity,
+                font_size,
+                show_scrollbar,
+            }
+        })
+        .ok_or_else(|| "Empty workspace tree".to_string())?;
         node.save_to_disk()
     }
 
@@ -1048,6 +1079,7 @@ impl Workspace {
             let pane = self.spawn_and_register_pane(id, &cfg.title, wd_path.as_deref(), None);
             pane.set_custom_opacity(cfg.opacity);
             pane.set_custom_font_size(cfg.font_size);
+            pane.set_custom_show_scrollbar(cfg.show_scrollbar);
 
             if let Some(cmd) = cfg
                 .command
@@ -1094,12 +1126,14 @@ impl Workspace {
                 .filter(|s| !s.trim().is_empty());
             let opacity = widget.and_then(|w| w.custom_opacity());
             let font_size = widget.and_then(|w| w.custom_font_size());
+            let show_scrollbar = widget.and_then(|w| w.custom_show_scrollbar());
             PanePresetConfig {
                 title,
                 command,
                 working_dir,
                 opacity,
                 font_size,
+                show_scrollbar,
             }
         })
         .unwrap_or_else(|| LayoutNode::Pane {
@@ -1108,6 +1142,7 @@ impl Workspace {
             working_dir: None,
             opacity: None,
             font_size: None,
+            show_scrollbar: None,
         });
 
         let s = self.settings.borrow();
@@ -1162,6 +1197,7 @@ impl Workspace {
             let pane = self.spawn_and_register_pane(id, &cfg.title, wd_path.as_deref(), None);
             pane.set_custom_opacity(cfg.opacity);
             pane.set_custom_font_size(cfg.font_size);
+            pane.set_custom_show_scrollbar(cfg.show_scrollbar);
 
             if let Some(cmd) = cfg
                 .command
@@ -1249,6 +1285,11 @@ impl Workspace {
                 MenuAction::ClearScrollback => {
                     if let Some(p) = ws.pane_widgets.borrow().get(&tile_id) {
                         p.clear_scrollback();
+                    }
+                }
+                MenuAction::ToggleScrollbar => {
+                    if let Some(p) = ws.pane_widgets.borrow().get(&tile_id) {
+                        p.toggle_scrollbar();
                     }
                 }
                 MenuAction::SaveLayout => {

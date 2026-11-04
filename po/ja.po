@@ -331,3 +331,6 @@ msgstr "上下分割 (Vertical Split)"
 
 msgid "Tabs"
 msgstr "タブグループ (Tabs)"
+
+msgid "Toggle Scrollbar"
+msgstr "スクロールバー表示切替"

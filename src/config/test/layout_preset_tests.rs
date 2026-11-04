@@ -34,6 +34,7 @@ fn test_workspace_preset_store_and_node_operations() {
             working_dir: Some("~/projects/app".to_string()),
             opacity: Some(0.85),
             font_size: Some(16.0),
+            show_scrollbar: None,
         },
     };
 
@@ -47,10 +48,16 @@ fn test_workspace_preset_store_and_node_operations() {
         cfg.command = Some("tail -f app.log".to_string());
         cfg.opacity = Some(0.75);
         cfg.font_size = Some(14.5);
+        cfg.show_scrollbar = Some(false);
     });
 
     let (tree1, cfgs) = p1.root.build_tree_with_configs();
     assert_eq!(cfgs.len(), 3);
+    assert_eq!(cfgs.get(&TileId(1)).and_then(|c| c.show_scrollbar), None);
+    assert_eq!(
+        cfgs.get(&TileId(3)).and_then(|c| c.show_scrollbar),
+        Some(false)
+    );
     let next_start = tree1.next_id_counter();
     assert_eq!(next_start, 4);
 

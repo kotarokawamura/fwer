@@ -332,3 +332,6 @@ msgstr "Vertical Split"
 
 msgid "Tabs"
 msgstr "Tabs"
+
+msgid "Toggle Scrollbar"
+msgstr "Toggle Scrollbar"

@@ -27,6 +27,8 @@ pub enum LayoutNode {
         opacity: Option<f32>,
         #[serde(default)]
         font_size: Option<f32>,
+        #[serde(default)]
+        show_scrollbar: Option<bool>,
     },
     HorizontalSplit {
         children: Vec<LayoutNode>,
@@ -46,6 +48,7 @@ pub struct PanePresetConfig {
     pub working_dir: Option<String>,
     pub opacity: Option<f32>,
     pub font_size: Option<f32>,
+    pub show_scrollbar: Option<bool>,
 }
 
 impl Default for PanePresetConfig {
@@ -56,6 +59,7 @@ impl Default for PanePresetConfig {
             working_dir: None,
             opacity: None,
             font_size: None,
+            show_scrollbar: None,
         }
     }
 }
@@ -85,6 +89,7 @@ impl Default for WorkspacePreset {
                 working_dir: None,
                 opacity: None,
                 font_size: None,
+                show_scrollbar: None,
             },
         }
     }
@@ -195,6 +200,7 @@ impl LayoutNode {
                 working_dir: None,
                 opacity: None,
                 font_size: None,
+                show_scrollbar: None,
             }
         })
     }
@@ -220,6 +226,7 @@ impl LayoutNode {
                     working_dir: cfg.working_dir,
                     opacity: cfg.opacity,
                     font_size: cfg.font_size,
+                    show_scrollbar: cfg.show_scrollbar,
                 }
             }
             TreeNode::Horizontal(children) => LayoutNode::HorizontalSplit {
@@ -285,6 +292,7 @@ impl LayoutNode {
                 working_dir,
                 opacity,
                 font_size,
+                show_scrollbar,
             } => {
                 let id = tree.allocate_pane(title.clone(), command.clone());
                 configs.insert(
@@ -295,6 +303,7 @@ impl LayoutNode {
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
                         font_size: *font_size,
+                        show_scrollbar: *show_scrollbar,
                     },
                 );
                 TreeNode::Pane(id)
@@ -359,6 +368,7 @@ impl LayoutNode {
                 working_dir,
                 opacity,
                 font_size,
+                show_scrollbar,
             } => {
                 out.push(PanePresetConfig {
                     title: title.clone(),
@@ -366,6 +376,7 @@ impl LayoutNode {
                     working_dir: working_dir.clone(),
                     opacity: *opacity,
                     font_size: *font_size,
+                    show_scrollbar: *show_scrollbar,
                 });
             }
             LayoutNode::HorizontalSplit { children }
@@ -402,6 +413,7 @@ impl LayoutNode {
                 working_dir,
                 opacity,
                 font_size,
+                show_scrollbar,
             } => {
                 if *cur_idx == target_idx {
                     let mut cfg = PanePresetConfig {
@@ -410,6 +422,7 @@ impl LayoutNode {
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
                         font_size: *font_size,
+                        show_scrollbar: *show_scrollbar,
                     };
                     updater(&mut cfg);
                     *title = cfg.title;
@@ -417,6 +430,7 @@ impl LayoutNode {
                     *working_dir = cfg.working_dir;
                     *opacity = cfg.opacity;
                     *font_size = cfg.font_size;
+                    *show_scrollbar = cfg.show_scrollbar;
                     return true;
                 }
                 *cur_idx += 1;
@@ -460,6 +474,7 @@ impl LayoutNode {
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
                         font_size: *font_size,
+                        show_scrollbar: None,
                     };
                     let existing = self.clone();
                     *self = if horizontal {
@@ -509,6 +524,7 @@ impl LayoutNode {
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
                         font_size: *font_size,
+                        show_scrollbar: None,
                     };
                     let existing = self.clone();
                     *self = LayoutNode::Tabs {

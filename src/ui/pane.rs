@@ -162,6 +162,7 @@ pub struct TerminalPaneWidget {
     opacity_confirmed: Rc<Cell<bool>>,
     custom_opacity: Cell<Option<f32>>,
     custom_font_size: Cell<Option<f32>>,
+    custom_show_scrollbar: Cell<Option<bool>>,
     initial_working_dir: RefCell<Option<PathBuf>>,
     startup_command_str: RefCell<Option<String>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
@@ -279,6 +280,7 @@ impl TerminalPaneWidget {
         let opacity_confirmed = Rc::new(Cell::new(false));
         let custom_opacity = Cell::new(None);
         let custom_font_size = Cell::new(None);
+        let custom_show_scrollbar = Cell::new(None);
         let initial_working_dir = RefCell::new(working_dir.map(|p| p.to_path_buf()));
         let startup_command_str = RefCell::new(startup_command.map(|s| s.to_string()));
         let settings_cache = Rc::new(RefCell::new(settings.clone()));
@@ -299,6 +301,7 @@ impl TerminalPaneWidget {
             opacity_confirmed,
             custom_opacity,
             custom_font_size,
+            custom_show_scrollbar,
             initial_working_dir,
             startup_command_str,
             settings_cache,
@@ -633,6 +636,28 @@ impl TerminalPaneWidget {
         self.apply_effective_theme(&settings);
     }
 
+    pub fn custom_show_scrollbar(&self) -> Option<bool> {
+        self.custom_show_scrollbar.get()
+    }
+
+    pub fn effective_show_scrollbar(&self, settings: &ThemeSettings) -> bool {
+        self.custom_show_scrollbar
+            .get()
+            .unwrap_or(settings.show_scrollbar)
+    }
+
+    pub fn set_custom_show_scrollbar(&self, show: Option<bool>) {
+        self.custom_show_scrollbar.set(show);
+        let settings = self.settings_cache.borrow().clone();
+        self.scrollbar
+            .set_visible(self.effective_show_scrollbar(&settings));
+    }
+
+    pub fn toggle_scrollbar(&self) {
+        let cur = self.effective_show_scrollbar(&self.settings_cache.borrow());
+        self.set_custom_show_scrollbar(Some(!cur));
+    }
+
     pub fn startup_command(&self) -> Option<String> {
         self.startup_command_str.borrow().clone()
     }
@@ -737,7 +762,8 @@ impl TerminalPaneWidget {
         self.current_mode.set(ctx.mode);
         *self.settings_cache.borrow_mut() = settings.clone();
 
-        self.scrollbar.set_visible(settings.show_scrollbar);
+        self.scrollbar
+            .set_visible(self.effective_show_scrollbar(settings));
         self.titlebar.update_appearance(ctx, settings);
         self.apply_effective_theme(settings);
         self.refresh_highlight_frame();

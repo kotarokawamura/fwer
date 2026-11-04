@@ -14,7 +14,7 @@ fn test_default_pane_and_titlebar_menus_and_plugins() {
     };
 
     let pane_entries = mgr.build_entries(&ctx_pane);
-    assert_eq!(pane_entries.len(), 9);
+    assert_eq!(pane_entries.len(), 10);
 
     mgr.register_plugin_entry(
         MenuTargetKind::Pane,
@@ -27,7 +27,7 @@ fn test_default_pane_and_titlebar_menus_and_plugins() {
         },
     );
     let pane_with_plugin = mgr.build_entries(&ctx_pane);
-    assert_eq!(pane_with_plugin.len(), 11); // + Separator + Plugin Item
+    assert_eq!(pane_with_plugin.len(), 12); // + Separator + Plugin Item
 
     let ctx_titlebar = MenuContext {
         target_kind: MenuTargetKind::Titlebar,
@@ -36,7 +36,21 @@ fn test_default_pane_and_titlebar_menus_and_plugins() {
         shortcuts: ShortcutSettings::default(),
     };
     let tb_entries = mgr.build_entries(&ctx_titlebar);
-    assert_eq!(tb_entries.len(), 8);
+    assert_eq!(tb_entries.len(), 9);
+    assert!(pane_entries.iter().any(|e| matches!(
+        e,
+        MenuEntry::Item {
+            action: MenuAction::ToggleScrollbar,
+            ..
+        }
+    )));
+    assert!(tb_entries.iter().any(|e| matches!(
+        e,
+        MenuEntry::Item {
+            action: MenuAction::ToggleScrollbar,
+            ..
+        }
+    )));
 
     let preset_names = vec!["Dev Set".to_string(), "Logs".to_string()];
     let pane_with_presets = mgr.build_entries_with_presets(&ctx_pane, &preset_names);

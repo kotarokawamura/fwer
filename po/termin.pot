@@ -305,3 +305,6 @@ msgstr ""
 
 msgid "Tabs"
 msgstr ""
+
+msgid "Toggle Scrollbar"
+msgstr ""
