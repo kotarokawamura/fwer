@@ -164,6 +164,12 @@ pub trait TerminalBackend {
     /// Returns the current per-pane zoom scale.
     fn zoom_scale(&self) -> f64;
 
+    /// Enables or disables read-only mode (blocking user input and clipboard paste).
+    fn set_read_only(&mut self, read_only: bool);
+
+    /// Returns whether the terminal is currently in read-only mode.
+    fn is_read_only(&self) -> bool;
+
     /// Returns the current working directory of the foreground process in the terminal.
     fn current_working_dir(&self) -> Option<PathBuf>;
 

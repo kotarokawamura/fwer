@@ -8,6 +8,14 @@
 use crate::i18n::tr;
 use crate::menus::types::{MenuAction, MenuContext, MenuEntry};
 
+pub fn checkbox_icon(checked: bool) -> String {
+    if checked {
+        "☑".to_string()
+    } else {
+        "□".to_string()
+    }
+}
+
 pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
     let sc = &ctx.shortcuts;
     vec![
@@ -61,10 +69,17 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
             enabled: true,
         },
         MenuEntry::Item {
-            icon: "📜".to_string(),
+            icon: checkbox_icon(ctx.show_scrollbar),
             label: tr("Toggle Scrollbar"),
             shortcut: Some(sc.toggle_scrollbar.clone()),
             action: MenuAction::ToggleScrollbar,
+            enabled: true,
+        },
+        MenuEntry::Item {
+            icon: checkbox_icon(ctx.is_read_only),
+            label: tr("Read-Only"),
+            shortcut: None,
+            action: MenuAction::ToggleReadOnly,
             enabled: true,
         },
         MenuEntry::Separator,
@@ -137,10 +152,17 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         },
         MenuEntry::Separator,
         MenuEntry::Item {
-            icon: "📜".to_string(),
+            icon: checkbox_icon(ctx.show_scrollbar),
             label: tr("Toggle Scrollbar"),
             shortcut: Some(sc.toggle_scrollbar.clone()),
             action: MenuAction::ToggleScrollbar,
+            enabled: true,
+        },
+        MenuEntry::Item {
+            icon: checkbox_icon(ctx.is_read_only),
+            label: tr("Read-Only"),
+            shortcut: None,
+            action: MenuAction::ToggleReadOnly,
             enabled: true,
         },
         MenuEntry::Item {

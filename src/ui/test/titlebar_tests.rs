@@ -64,3 +64,29 @@ fn test_color_shading_helpers() {
         RgbColor(100, 50, 25)
     );
 }
+
+#[test]
+fn test_readonly_indicator_color_contrast() {
+    let test_bgs = [
+        RgbColor(117, 33, 0),    // Default active
+        RgbColor(75, 75, 75),    // Default inactive
+        RgbColor(25, 118, 210),  // Broadcast 1
+        RgbColor(16, 142, 92),   // Broadcast 2
+        RgbColor(138, 58, 185),  // Broadcast 3
+        RgbColor(217, 119, 6),   // Broadcast 4 (Amber)
+        RgbColor(0, 151, 167),   // Broadcast 5
+        RgbColor(194, 24, 91),   // Broadcast 6
+        RgbColor(250, 240, 137), // Light yellow custom bg
+        RgbColor(245, 245, 245), // White/light gray custom bg
+    ];
+    for bg in test_bgs {
+        let ro_color = resolve_readonly_indicator_color(bg);
+        assert!(
+            contrast_ratio(bg, ro_color) >= 3.5,
+            "Expected high contrast >= 3.5 for bg {:?}, got {} with {:?}",
+            bg,
+            contrast_ratio(bg, ro_color),
+            ro_color
+        );
+    }
+}

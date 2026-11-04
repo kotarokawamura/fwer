@@ -1234,11 +1234,17 @@ impl Workspace {
         let Some(pane) = self.pane_widgets.borrow().get(&tile_id).cloned() else {
             return;
         };
+        let (show_scrollbar, shortcuts) = {
+            let s = self.settings.borrow();
+            (pane.effective_show_scrollbar(&s), s.shortcuts.clone())
+        };
         let ctx = MenuContext {
             target_kind,
             tile_id,
             has_selection: pane.has_selection(),
-            shortcuts: self.settings.borrow().shortcuts.clone(),
+            show_scrollbar,
+            is_read_only: pane.is_read_only(),
+            shortcuts,
         };
         let preset_names: Vec<String> = PresetStore::load()
             .presets
@@ -1291,6 +1297,12 @@ impl Workspace {
                     if let Some(p) = ws.pane_widgets.borrow().get(&tile_id) {
                         p.toggle_scrollbar();
                     }
+                }
+                MenuAction::ToggleReadOnly => {
+                    if let Some(p) = ws.pane_widgets.borrow().get(&tile_id) {
+                        p.toggle_read_only();
+                    }
+                    ws.refresh_all_panes();
                 }
                 MenuAction::SaveLayout => {
                     let _ = ws.save_current_layout();

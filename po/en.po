@@ -335,3 +335,6 @@ msgstr "Tabs"
 
 msgid "Toggle Scrollbar"
 msgstr "Toggle Scrollbar"
+
+msgid "Read-Only"
+msgstr "Read-Only"

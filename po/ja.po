@@ -334,3 +334,6 @@ msgstr "タブグループ (Tabs)"
 
 msgid "Toggle Scrollbar"
 msgstr "スクロールバー表示切替"
+
+msgid "Read-Only"
+msgstr "読み取り専用 (Read-Only)"

@@ -163,6 +163,7 @@ pub struct TerminalPaneWidget {
     custom_opacity: Cell<Option<f32>>,
     custom_font_size: Cell<Option<f32>>,
     custom_show_scrollbar: Cell<Option<bool>>,
+    read_only: Cell<bool>,
     initial_working_dir: RefCell<Option<PathBuf>>,
     startup_command_str: RefCell<Option<String>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
@@ -281,6 +282,7 @@ impl TerminalPaneWidget {
         let custom_opacity = Cell::new(None);
         let custom_font_size = Cell::new(None);
         let custom_show_scrollbar = Cell::new(None);
+        let read_only = Cell::new(false);
         let initial_working_dir = RefCell::new(working_dir.map(|p| p.to_path_buf()));
         let startup_command_str = RefCell::new(startup_command.map(|s| s.to_string()));
         let settings_cache = Rc::new(RefCell::new(settings.clone()));
@@ -302,6 +304,7 @@ impl TerminalPaneWidget {
             custom_opacity,
             custom_font_size,
             custom_show_scrollbar,
+            read_only,
             initial_working_dir,
             startup_command_str,
             settings_cache,
@@ -542,11 +545,15 @@ impl TerminalPaneWidget {
                             return glib::Propagation::Stop;
                         }
                         gdk::Key::Insert | gdk::Key::KP_Insert => {
-                            pane.backend.borrow().paste_clipboard();
+                            pane.paste_clipboard();
                             return glib::Propagation::Stop;
                         }
                         _ => {}
                     }
+                }
+
+                if pane.is_read_only() {
+                    return glib::Propagation::Stop;
                 }
 
                 glib::Propagation::Proceed
@@ -658,6 +665,21 @@ impl TerminalPaneWidget {
         self.set_custom_show_scrollbar(Some(!cur));
     }
 
+    pub fn is_read_only(&self) -> bool {
+        self.read_only.get()
+    }
+
+    pub fn set_read_only(&self, read_only: bool) {
+        self.read_only.set(read_only);
+        self.backend.borrow_mut().set_read_only(read_only);
+        self.titlebar.set_read_only(read_only);
+    }
+
+    pub fn toggle_read_only(&self) {
+        let cur = self.is_read_only();
+        self.set_read_only(!cur);
+    }
+
     pub fn startup_command(&self) -> Option<String> {
         self.startup_command_str.borrow().clone()
     }
@@ -709,6 +731,9 @@ impl TerminalPaneWidget {
     }
 
     pub fn write_input(&self, data: &[u8]) {
+        if self.read_only.get() {
+            return;
+        }
         self.backend.borrow_mut().write_input(data);
     }
 
@@ -717,6 +742,9 @@ impl TerminalPaneWidget {
     }
 
     pub fn paste_clipboard(&self) {
+        if self.read_only.get() {
+            return;
+        }
         self.backend.borrow().paste_clipboard();
     }
 
@@ -764,6 +792,7 @@ impl TerminalPaneWidget {
 
         self.scrollbar
             .set_visible(self.effective_show_scrollbar(settings));
+        self.titlebar.set_read_only(self.read_only.get());
         self.titlebar.update_appearance(ctx, settings);
         self.apply_effective_theme(settings);
         self.refresh_highlight_frame();

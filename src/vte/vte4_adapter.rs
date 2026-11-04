@@ -31,6 +31,7 @@ use crate::vte::{ONE_DARK_PALETTE_16, RgbColor, TerminalBackend};
 pub struct Vte4Adapter {
     terminal: vte4::Terminal,
     zoom_scale: f64,
+    read_only: Rc<Cell<bool>>,
     child_pid: Rc<Cell<Option<i32>>>,
     child_alive: Rc<Cell<bool>>,
     initial_cwd: Option<PathBuf>,
@@ -56,6 +57,7 @@ impl Vte4Adapter {
         terminal.set_audible_bell(false);
         terminal.set_mouse_autohide(true);
 
+        let read_only = Rc::new(Cell::new(false));
         let child_pid = Rc::new(Cell::new(None));
         let child_alive = Rc::new(Cell::new(true));
         let is_feeding_child = Rc::new(Cell::new(false));
@@ -69,9 +71,10 @@ impl Vte4Adapter {
         // Forward user input commits for broadcast group synchronization
         {
             let is_feeding = Rc::clone(&is_feeding_child);
+            let ro_flag = Rc::clone(&read_only);
             let cb_ref = Rc::clone(&on_user_input);
             terminal.connect_commit(move |_term, text, _size| {
-                if is_feeding.get() || text.is_empty() {
+                if is_feeding.get() || ro_flag.get() || text.is_empty() {
                     return;
                 }
                 if let Some(ref cb) = *cb_ref.borrow() {
@@ -114,6 +117,7 @@ impl Vte4Adapter {
         let mut adapter = Self {
             terminal,
             zoom_scale: 1.0,
+            read_only,
             child_pid,
             child_alive,
             initial_cwd: None,
@@ -229,7 +233,7 @@ impl TerminalBackend for Vte4Adapter {
     }
 
     fn write_input(&mut self, data: &[u8]) {
-        if data.is_empty() {
+        if data.is_empty() || self.read_only.get() {
             return;
         }
         self.scroll_to_bottom();
@@ -259,6 +263,9 @@ impl TerminalBackend for Vte4Adapter {
     }
 
     fn paste_clipboard(&self) {
+        if self.read_only.get() {
+            return;
+        }
         self.terminal.paste_clipboard();
     }
 
@@ -359,6 +366,15 @@ impl TerminalBackend for Vte4Adapter {
 
     fn zoom_scale(&self) -> f64 {
         self.zoom_scale
+    }
+
+    fn set_read_only(&mut self, read_only: bool) {
+        self.read_only.set(read_only);
+        self.terminal.set_input_enabled(!read_only);
+    }
+
+    fn is_read_only(&self) -> bool {
+        self.read_only.get()
     }
 
     fn current_working_dir(&self) -> Option<PathBuf> {

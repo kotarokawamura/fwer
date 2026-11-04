@@ -19,6 +19,8 @@ pub struct MenuContext {
     pub target_kind: MenuTargetKind,
     pub tile_id: TileId,
     pub has_selection: bool,
+    pub show_scrollbar: bool,
+    pub is_read_only: bool,
     pub shortcuts: ShortcutSettings,
 }
 
@@ -31,6 +33,7 @@ pub enum MenuAction {
     NewTab,
     ClearScrollback,
     ToggleScrollbar,
+    ToggleReadOnly,
     SaveLayout,
     LoadLayout,
     ToggleFullscreen,

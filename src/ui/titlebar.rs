@@ -89,6 +89,61 @@ pub fn blend_rgb(a: RgbColor, b: RgbColor, t: f32) -> RgbColor {
     RgbColor(r, g, bl)
 }
 
+/// Computes WCAG relative luminance in `0.0..=1.0`.
+pub fn relative_luminance(c: RgbColor) -> f32 {
+    fn channel_linear(v: u8) -> f32 {
+        let s = v as f32 / 255.0;
+        if s <= 0.03928 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * channel_linear(c.0) + 0.7152 * channel_linear(c.1) + 0.0722 * channel_linear(c.2)
+}
+
+/// Computes WCAG contrast ratio (`1.0..=21.0`) between two colors.
+pub fn contrast_ratio(a: RgbColor, b: RgbColor) -> f32 {
+    let la = relative_luminance(a);
+    let lb = relative_luminance(b);
+    let (lighter, darker) = if la >= lb { (la, lb) } else { (lb, la) };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+/// Selects a high-visibility accent color for the Read-Only `☑` indicator
+/// adapted to the titlebar background color `bg`.
+pub fn resolve_readonly_indicator_color(bg: RgbColor) -> RgbColor {
+    const CANDIDATES: &[RgbColor] = &[
+        RgbColor(250, 204, 21),  // Warm Gold / Yellow (great on dark gray, brown, blue, purple)
+        RgbColor(254, 249, 195), // Bright Cream Yellow (great on mid-tone green / blue)
+        RgbColor(103, 232, 249), // Bright Cyan (great on warm dark / red / brown backgrounds)
+        RgbColor(134, 239, 172), // Bright Mint Green (great on dark purple / magenta)
+        RgbColor(185, 28, 28),   // Deep Crimson (great on light / white / yellow backgrounds)
+        RgbColor(29, 78, 216),   // Deep Royal Blue (great on light warm / green backgrounds)
+        RgbColor(15, 23, 42),    // Deep Slate Navy (great on bright amber / mid-bright backgrounds)
+    ];
+
+    let mut best_color = CANDIDATES[0];
+    let mut best_score = f32::MIN;
+
+    for (idx, &cand) in CANDIDATES.iter().enumerate() {
+        let cr = contrast_ratio(bg, cand);
+        let dr = (bg.0 as f32 - cand.0 as f32) / 255.0;
+        let dg = (bg.1 as f32 - cand.1 as f32) / 255.0;
+        let db = (bg.2 as f32 - cand.2 as f32) / 255.0;
+        let rgb_dist = (dr * dr + dg * dg + db * db).sqrt();
+        let bonus = if idx == 0 && cr >= 6.5 { 1.5 } else { 0.0 };
+        let penalty = if cr < 3.8 { -10.0 } else { 0.0 };
+        let score = cr * 2.0 + rgb_dist * 1.5 + bonus + penalty;
+        if score > best_score {
+            best_score = score;
+            best_color = cand;
+        }
+    }
+
+    best_color
+}
+
 /// Pure state transition helper for `[ ✥ ]` grip clicks (used by both UI and unit tests).
 pub fn next_mode_on_grip_click(
     current: InteractionMode,
@@ -116,6 +171,7 @@ pub struct TitlebarWidget {
     badge_label: gtk4::Label,
     title_stack: gtk4::Stack,
     title_label: gtk4::Label,
+    readonly_label: gtk4::Label,
     title_entry: gtk4::Entry,
     min_btn: gtk4::Button,
     max_btn: gtk4::Button,
@@ -123,6 +179,7 @@ pub struct TitlebarWidget {
     last_css: RefCell<String>,
     current_title: Rc<RefCell<String>>,
     is_editing: Rc<Cell<bool>>,
+    is_read_only: Cell<bool>,
 }
 
 impl Drop for TitlebarWidget {
@@ -222,7 +279,7 @@ impl TitlebarWidget {
         title_stack.set_halign(gtk4::Align::Fill);
         title_stack.set_valign(gtk4::Align::Center);
 
-        let center_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let center_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         center_box.set_hexpand(true);
         center_box.set_halign(gtk4::Align::Center);
         center_box.set_valign(gtk4::Align::Center);
@@ -231,7 +288,15 @@ impl TitlebarWidget {
         title_label.add_css_class("fwer-tb-title");
         title_label.set_valign(gtk4::Align::Center);
         title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+        let readonly_label = gtk4::Label::new(Some("☑"));
+        readonly_label.add_css_class("fwer-tb-readonly");
+        readonly_label.set_valign(gtk4::Align::Center);
+        readonly_label.set_visible(false);
+        readonly_label.set_tooltip_text(Some("Read-Only"));
+
         center_box.append(&title_label);
+        center_box.append(&readonly_label);
 
         let title_entry = gtk4::Entry::new();
         title_entry.set_text(initial_title);
@@ -295,6 +360,7 @@ impl TitlebarWidget {
             badge_label,
             title_stack,
             title_label,
+            readonly_label,
             title_entry,
             min_btn,
             max_btn,
@@ -302,6 +368,7 @@ impl TitlebarWidget {
             last_css: RefCell::new(String::new()),
             current_title,
             is_editing,
+            is_read_only: Cell::new(false),
         });
 
         widget.setup_interactions(on_event);
@@ -523,10 +590,20 @@ impl TitlebarWidget {
         self.current_title.borrow().clone()
     }
 
+    pub fn set_read_only(&self, read_only: bool) {
+        self.is_read_only.set(read_only);
+        self.readonly_label.set_visible(read_only);
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.is_read_only.get()
+    }
+
     pub fn update_appearance(&self, ctx: &PaneContext, settings: &ThemeSettings) {
         // Only the top-right pane shows the window minimize and maximize buttons (Section 10.4)
         self.min_btn.set_visible(ctx.is_top_right);
         self.max_btn.set_visible(ctx.is_top_right);
+        self.readonly_label.set_visible(self.is_read_only.get());
 
         // Broadcast badge
         if ctx.broadcast_group >= 1 {
@@ -561,6 +638,8 @@ impl TitlebarWidget {
         let (bg, fg) = resolve_titlebar_colors(ctx, settings);
         let bg_hex = format_rgb_hex(bg);
         let fg_hex = format_rgb_hex(fg);
+        let ro_color = resolve_readonly_indicator_color(bg);
+        let ro_hex = format_rgb_hex(ro_color);
 
         let frame_bg_hex = format_rgb_hex(settings.effective_frame_bg_rgb());
         let frame_border_hex = format_rgb_hex(settings.effective_frame_border_rgb());
@@ -606,6 +685,14 @@ impl TitlebarWidget {
                 line-height: 1.0;
                 text-shadow: none;
                 padding: 0 4px;
+             }}
+             .{scope} label.fwer-tb-readonly {{
+                color: {ro_hex};
+                font-weight: bold;
+                font-size: {title_font_pt}pt;
+                line-height: 1.0;
+                text-shadow: none;
+                padding: 0 2px;
              }}
              .{scope} button.fwer-tb-btn {{
                 background-image: none;
