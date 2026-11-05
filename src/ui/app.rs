@@ -161,19 +161,38 @@ impl FwerApp {
                     if let Some(a) = app_weak.upgrade() {
                         let st = a.workspace.settings();
                         a.update_frame_margins(&st);
+                        a.workspace.schedule_pass_through_sync();
+                    }
+                });
+        }
+        {
+            let app_weak = Rc::downgrade(&fwer_app);
+            fwer_app
+                .window
+                .connect_notify_local(Some("default-width"), move |_, _| {
+                    if let Some(a) = app_weak.upgrade() {
+                        a.workspace.schedule_pass_through_sync();
+                    }
+                });
+        }
+        {
+            let app_weak = Rc::downgrade(&fwer_app);
+            fwer_app
+                .window
+                .connect_notify_local(Some("default-height"), move |_, _| {
+                    if let Some(a) = app_weak.upgrade() {
+                        a.workspace.schedule_pass_through_sync();
                     }
                 });
         }
 
         {
             let app_weak = Rc::downgrade(&fwer_app);
-            fwer_app
-                .window
-                .connect_is_active_notify(move |win| {
-                    if let Some(a) = app_weak.upgrade() {
-                        a.workspace.set_window_focused(win.is_active());
-                    }
-                });
+            fwer_app.window.connect_is_active_notify(move |win| {
+                if let Some(a) = app_weak.upgrade() {
+                    a.workspace.set_window_focused(win.is_active());
+                }
+            });
         }
 
         {
@@ -199,6 +218,7 @@ impl FwerApp {
 
         fwer_app.window.present();
         fwer_app.workspace.focus_active_pane();
+        fwer_app.workspace.schedule_pass_through_sync();
 
         if open_prefs_on_start {
             fwer_app.open_preferences();
@@ -220,6 +240,7 @@ impl FwerApp {
         self.scheduler
             .borrow_mut()
             .set_target_fps(settings.effective_target_fps());
+        self.workspace.schedule_pass_through_sync();
     }
 
     pub fn open_preferences(self: &Rc<Self>) {
@@ -242,7 +263,6 @@ impl FwerApp {
     }
 
     fn setup_custom_resize_frame(self: &Rc<Self>) {
-        // Motion controller to update resize cursor near outer border
         {
             let motion = gtk4::EventControllerMotion::new();
             let app_weak = Rc::downgrade(self);
@@ -266,7 +286,6 @@ impl FwerApp {
             self.window.add_controller(motion);
         }
 
-        // Click controller in Capture phase to initiate resize when dragging the outer border
         {
             let click = gtk4::GestureClick::new();
             click.set_button(1);
@@ -284,19 +303,12 @@ impl FwerApp {
                 let bw = a.workspace.settings().effective_border_width() as f64;
                 if let Some(edge) = hit_test_resize_edge(x, y, w, h, bw) {
                     gesture.set_state(gtk4::EventSequenceState::Claimed);
-                    if let Some(surface) = a.window.surface() {
-                        if let Ok(toplevel) = surface.downcast::<gdk::Toplevel>() {
-                            let device = gesture.device();
-                            let timestamp = gesture.current_event_time();
-                            toplevel.begin_resize(
-                                edge,
-                                device.as_ref(),
-                                1,
-                                x,
-                                y,
-                                timestamp,
-                            );
-                        }
+                    if let Some(surface) = a.window.surface()
+                        && let Ok(toplevel) = surface.downcast::<gdk::Toplevel>()
+                    {
+                        let device = gesture.device();
+                        let timestamp = gesture.current_event_time();
+                        toplevel.begin_resize(edge, device.as_ref(), 1, x, y, timestamp);
                     }
                 }
             });

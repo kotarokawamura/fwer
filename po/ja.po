@@ -112,6 +112,12 @@ msgstr "現在のフォント"
 msgid "Terminal Background Color"
 msgstr "ターミナル背景色"
 
+msgid "Terminal Cursor Color"
+msgstr "ターミナルカーソル色"
+
+msgid "Selection Highlight Color"
+msgstr "選択範囲のハイライト色"
+
 msgid "Terminal Background Opacity"
 msgstr "ターミナル背景の不透明度"
 

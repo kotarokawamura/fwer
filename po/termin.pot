@@ -90,6 +90,12 @@ msgstr ""
 msgid "Terminal Background Color"
 msgstr ""
 
+msgid "Terminal Cursor Color"
+msgstr ""
+
+msgid "Selection Highlight Color"
+msgstr ""
+
 msgid "Terminal Background Opacity"
 msgstr ""
 

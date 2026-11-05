@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use super::pane::PaneKind;
 use super::state::TileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +24,7 @@ pub struct PaneMeta {
     pub title: String,
     pub command: Option<String>,
     pub broadcast_group: usize,
+    pub kind: PaneKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +117,15 @@ impl WorkspaceTree {
     }
 
     pub fn allocate_pane(&mut self, title: impl Into<String>, command: Option<String>) -> TileId {
+        self.allocate_pane_with_kind(title, command, PaneKind::Shell)
+    }
+
+    pub fn allocate_pane_with_kind(
+        &mut self,
+        title: impl Into<String>,
+        command: Option<String>,
+        kind: PaneKind,
+    ) -> TileId {
         let id = TileId(self.next_id);
         self.next_id += 1;
         self.panes.insert(
@@ -124,6 +135,7 @@ impl WorkspaceTree {
                 title: title.into(),
                 command,
                 broadcast_group: 0,
+                kind,
             },
         );
         if self.active_pane.is_none() {
@@ -148,6 +160,15 @@ impl WorkspaceTree {
         out
     }
 
+    /// Returns all pane IDs currently visible (excluding inactive tabs).
+    pub fn visible_pane_ids(&self) -> Vec<TileId> {
+        let mut out = Vec::new();
+        if let Some(ref root) = self.root {
+            collect_visible_pane_ids(root, &mut out);
+        }
+        out
+    }
+
     pub fn set_active_pane(&mut self, target: TileId) {
         if !self.panes.contains_key(&target) {
             return;
@@ -165,6 +186,17 @@ impl WorkspaceTree {
         title: impl Into<String>,
         command: Option<String>,
     ) -> Option<TileId> {
+        self.split_pane_with_kind(target, horizontal, title, command, PaneKind::Shell)
+    }
+
+    pub fn split_pane_with_kind(
+        &mut self,
+        target: TileId,
+        horizontal: bool,
+        title: impl Into<String>,
+        command: Option<String>,
+        kind: PaneKind,
+    ) -> Option<TileId> {
         if !self.panes.contains_key(&target) {
             return None;
         }
@@ -172,7 +204,7 @@ impl WorkspaceTree {
             self.split_ratios
                 .insert((horizontal, target), (old_r * 0.5).clamp(0.05, 0.95));
         }
-        let new_id = self.allocate_pane(title, command);
+        let new_id = self.allocate_pane_with_kind(title, command, kind);
         if let Some(ref mut root) = self.root {
             replace_with_split(root, target, new_id, horizontal);
         }
@@ -186,10 +218,20 @@ impl WorkspaceTree {
         title: impl Into<String>,
         command: Option<String>,
     ) -> Option<TileId> {
+        self.add_tab_with_kind(target, title, command, PaneKind::Shell)
+    }
+
+    pub fn add_tab_with_kind(
+        &mut self,
+        target: TileId,
+        title: impl Into<String>,
+        command: Option<String>,
+        kind: PaneKind,
+    ) -> Option<TileId> {
         if !self.panes.contains_key(&target) {
             return None;
         }
-        let new_id = self.allocate_pane(title, command);
+        let new_id = self.allocate_pane_with_kind(title, command, kind);
         if let Some(ref mut root) = self.root {
             insert_tab_at(root, target, new_id);
         }
@@ -440,6 +482,25 @@ fn collect_pane_ids(node: &TreeNode, out: &mut Vec<TileId>) {
         TreeNode::Tabs { children, .. } => {
             for c in children {
                 collect_pane_ids(c, out);
+            }
+        }
+    }
+}
+
+fn collect_visible_pane_ids(node: &TreeNode, out: &mut Vec<TileId>) {
+    match node {
+        TreeNode::Pane(id) => out.push(*id),
+        TreeNode::Horizontal(children) | TreeNode::Vertical(children) => {
+            for c in children {
+                collect_visible_pane_ids(c, out);
+            }
+        }
+        TreeNode::Tabs {
+            children,
+            active_idx,
+        } => {
+            if let Some(active_child) = children.get(*active_idx).or_else(|| children.first()) {
+                collect_visible_pane_ids(active_child, out);
             }
         }
     }

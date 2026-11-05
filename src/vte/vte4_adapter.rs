@@ -39,7 +39,7 @@ pub struct Vte4Adapter {
     on_user_input: Rc<RefCell<Option<Box<dyn Fn(&[u8]) + 'static>>>>,
     on_child_exited: Rc<RefCell<Option<Box<dyn Fn(i32) + 'static>>>>,
     on_scroll_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize) + 'static>>>>,
-    last_colors: Option<(RgbColor, u32)>,
+    last_colors: Option<(RgbColor, u32, RgbColor, RgbColor)>,
     last_font: Option<(String, u32)>,
 }
 
@@ -322,7 +322,9 @@ impl TerminalBackend for Vte4Adapter {
     fn apply_theme(&mut self, settings: &ThemeSettings) {
         let bg_rgb = settings.effective_terminal_bg_rgb();
         let opacity = settings.effective_terminal_bg_opacity();
-        let color_key = (bg_rgb, opacity.to_bits());
+        let cursor_rgb = settings.effective_cursor_rgb();
+        let selection_rgb = settings.effective_selection_bg_rgb();
+        let color_key = (bg_rgb, opacity.to_bits(), cursor_rgb, selection_rgb);
 
         if self.last_colors != Some(color_key) {
             self.last_colors = Some(color_key);
@@ -339,8 +341,30 @@ impl TerminalBackend for Vte4Adapter {
             self.terminal
                 .set_colors(Some(&fg), Some(&bg), &palette_refs);
 
-            let cursor_bg = gdk::RGBA::new(220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 0.8);
+            let cursor_bg = rgb_to_gdk_rgba(cursor_rgb, 0.8);
             self.terminal.set_color_cursor(Some(&cursor_bg));
+            let cursor_lum = 0.299 * (cursor_rgb.0 as f32)
+                + 0.587 * (cursor_rgb.1 as f32)
+                + 0.114 * (cursor_rgb.2 as f32);
+            let cursor_fg = if cursor_lum > 128.0 {
+                rgb_to_gdk_rgba(RgbColor(0, 0, 0), 1.0)
+            } else {
+                rgb_to_gdk_rgba(RgbColor(255, 255, 255), 1.0)
+            };
+            self.terminal.set_color_cursor_foreground(Some(&cursor_fg));
+
+            let highlight_bg = rgb_to_gdk_rgba(selection_rgb, 1.0);
+            self.terminal.set_color_highlight(Some(&highlight_bg));
+            let sel_lum = 0.299 * (selection_rgb.0 as f32)
+                + 0.587 * (selection_rgb.1 as f32)
+                + 0.114 * (selection_rgb.2 as f32);
+            let highlight_fg = if sel_lum > 140.0 {
+                rgb_to_gdk_rgba(RgbColor(0, 0, 0), 1.0)
+            } else {
+                rgb_to_gdk_rgba(RgbColor(255, 255, 255), 1.0)
+            };
+            self.terminal
+                .set_color_highlight_foreground(Some(&highlight_fg));
         }
 
         let family = settings.effective_font_family();

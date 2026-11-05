@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::config::theme::config_path;
+use crate::ui::pane::PaneKind;
 use crate::ui::state::TileId;
 use crate::ui::tree_ops::{TreeNode, WorkspaceTree};
 
@@ -19,6 +20,8 @@ use crate::ui::tree_ops::{TreeNode, WorkspaceTree};
 pub enum LayoutNode {
     Pane {
         title: String,
+        #[serde(default)]
+        pane_kind: PaneKind,
         #[serde(default)]
         command: Option<String>,
         #[serde(default)]
@@ -44,6 +47,7 @@ pub enum LayoutNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PanePresetConfig {
     pub title: String,
+    pub pane_kind: PaneKind,
     pub command: Option<String>,
     pub working_dir: Option<String>,
     pub opacity: Option<f32>,
@@ -55,6 +59,7 @@ impl Default for PanePresetConfig {
     fn default() -> Self {
         Self {
             title: "/bin/bash".to_string(),
+            pane_kind: PaneKind::Shell,
             command: None,
             working_dir: None,
             opacity: None,
@@ -85,6 +90,7 @@ impl Default for WorkspacePreset {
             ui_font_size: None,
             root: LayoutNode::Pane {
                 title: "/bin/bash".to_string(),
+                pane_kind: PaneKind::Shell,
                 command: None,
                 working_dir: None,
                 opacity: None,
@@ -189,13 +195,14 @@ impl PresetStore {
 impl LayoutNode {
     pub fn from_tree(tree: &WorkspaceTree) -> Option<Self> {
         Self::from_tree_with_configs(tree, |id| {
-            let (title, command) = tree
+            let (title, command, pane_kind) = tree
                 .panes
                 .get(&id)
-                .map(|p| (p.title.clone(), p.command.clone()))
-                .unwrap_or_else(|| ("/bin/bash".to_string(), None));
+                .map(|p| (p.title.clone(), p.command.clone(), p.kind))
+                .unwrap_or_else(|| ("/bin/bash".to_string(), None, PaneKind::Shell));
             PanePresetConfig {
                 title,
+                pane_kind,
                 command,
                 working_dir: None,
                 opacity: None,
@@ -222,6 +229,7 @@ impl LayoutNode {
                 let cfg = resolver(*id);
                 LayoutNode::Pane {
                     title: cfg.title,
+                    pane_kind: cfg.pane_kind,
                     command: cfg.command,
                     working_dir: cfg.working_dir,
                     opacity: cfg.opacity,
@@ -288,17 +296,19 @@ impl LayoutNode {
         match self {
             LayoutNode::Pane {
                 title,
+                pane_kind,
                 command,
                 working_dir,
                 opacity,
                 font_size,
                 show_scrollbar,
             } => {
-                let id = tree.allocate_pane(title.clone(), command.clone());
+                let id = tree.allocate_pane_with_kind(title.clone(), command.clone(), *pane_kind);
                 configs.insert(
                     id,
                     PanePresetConfig {
                         title: title.clone(),
+                        pane_kind: *pane_kind,
                         command: command.clone(),
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
@@ -364,6 +374,7 @@ impl LayoutNode {
         match self {
             LayoutNode::Pane {
                 title,
+                pane_kind,
                 command,
                 working_dir,
                 opacity,
@@ -372,6 +383,7 @@ impl LayoutNode {
             } => {
                 out.push(PanePresetConfig {
                     title: title.clone(),
+                    pane_kind: *pane_kind,
                     command: command.clone(),
                     working_dir: working_dir.clone(),
                     opacity: *opacity,
@@ -409,6 +421,7 @@ impl LayoutNode {
         match self {
             LayoutNode::Pane {
                 title,
+                pane_kind,
                 command,
                 working_dir,
                 opacity,
@@ -418,6 +431,7 @@ impl LayoutNode {
                 if *cur_idx == target_idx {
                     let mut cfg = PanePresetConfig {
                         title: title.clone(),
+                        pane_kind: *pane_kind,
                         command: command.clone(),
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
@@ -426,6 +440,7 @@ impl LayoutNode {
                     };
                     updater(&mut cfg);
                     *title = cfg.title;
+                    *pane_kind = cfg.pane_kind;
                     *command = cfg.command;
                     *working_dir = cfg.working_dir;
                     *opacity = cfg.opacity;
@@ -470,6 +485,7 @@ impl LayoutNode {
                 if *cur_idx == target_idx {
                     let new_pane = LayoutNode::Pane {
                         title: "/bin/bash".to_string(),
+                        pane_kind: PaneKind::Shell,
                         command: None,
                         working_dir: working_dir.clone(),
                         opacity: *opacity,
@@ -520,6 +536,7 @@ impl LayoutNode {
                 if *cur_idx == target_idx {
                     let new_pane = LayoutNode::Pane {
                         title: "/bin/bash".to_string(),
+                        pane_kind: PaneKind::Shell,
                         command: None,
                         working_dir: working_dir.clone(),
                         opacity: *opacity,

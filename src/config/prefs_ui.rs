@@ -27,6 +27,7 @@ use crate::config::theme::{
 use crate::i18n::{
     active_entry_count, active_locale, discover_po_files, load_catalog_for_language, tr,
 };
+use crate::ui::pane::PaneKind;
 use crate::ui::workspace::Workspace;
 use crate::vte::RgbColor;
 
@@ -354,7 +355,6 @@ impl PreferencesWindow {
                         target.append,
                     );
                     p.notify_changed(settings);
-                    // タブを再構築せず、該当行のUIだけを直接更新（スクロール位置が飛ばない）
                     p.refresh_shortcut_row_ui(&target.slot_key);
                     return glib::Propagation::Stop;
                 }
@@ -556,6 +556,20 @@ impl PreferencesWindow {
             RgbColor(0, 0, 0),
             |st, v| st.terminal_bg_color = v,
         );
+        self.add_color_editor_row(
+            &vbox,
+            &tr("Terminal Cursor Color"),
+            &s.cursor_color,
+            RgbColor(220, 220, 220),
+            |st, v| st.cursor_color = v,
+        );
+        self.add_color_editor_row(
+            &vbox,
+            &tr("Selection Highlight Color"),
+            &s.selection_bg_color,
+            RgbColor(230, 230, 230),
+            |st, v| st.selection_bg_color = v,
+        );
 
         vbox.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -615,6 +629,20 @@ impl PreferencesWindow {
             });
         }
         vbox.append(&chk);
+
+        let select_pane_chk = gtk4::CheckButton::with_label(&tr("Select Panel Type on Split"));
+        select_pane_chk.set_active(s.select_pane_type_on_split);
+        {
+            let p_weak = Rc::downgrade(self);
+            select_pane_chk.connect_toggled(move |c| {
+                if let Some(p) = p_weak.upgrade() {
+                    let mut st = p.workspace.settings();
+                    st.select_pane_type_on_split = c.is_active();
+                    p.notify_changed(st);
+                }
+            });
+        }
+        vbox.append(&select_pane_chk);
 
         vbox.upcast()
     }
@@ -887,7 +915,6 @@ impl PreferencesWindow {
         #[allow(deprecated)]
         let font_combo = gtk4::ComboBoxText::new();
         font_combo.set_hexpand(true);
-        // コンボボックス上でスワイプ（ホイールスクロール）しても選択フォントが変わらないようにブロック
         disable_combo_scroll(&font_combo);
         combo_row.append(&combo_lbl);
         combo_row.append(&font_combo);
@@ -916,7 +943,6 @@ impl PreferencesWindow {
 
         let combo_populating = Rc::new(Cell::new(false));
 
-        // コンボボックスへの追加を最大 MAX_COMBO_FONTS (200件) に制限して高速化
         let populate_combo = {
             let fonts_rc = Rc::clone(&self.discovered_fonts);
             let combo_clone = font_combo.clone();
@@ -949,7 +975,6 @@ impl PreferencesWindow {
                     }
                 }
 
-                // 現在選択中のフォントが上限200件の外にある場合でもリストに追加して選択状態を維持する
                 if !current_added && Path::new(current_path).exists() {
                     let label = Path::new(current_path)
                         .file_name()
@@ -1701,15 +1726,16 @@ impl PreferencesWindow {
             let target_str = match target {
                 PresetEditorTarget::Window => format!("<b>🪟 {}</b>", tr("Window")),
                 PresetEditorTarget::Pane(p_idx) => {
-                    let p_title = pr
-                        .root
-                        .pane_configs()
-                        .get(p_idx)
+                    let cfgs = pr.root.pane_configs();
+                    let p_cfg = cfgs.get(p_idx);
+                    let p_title = p_cfg
                         .map(|c| c.title.clone())
                         .unwrap_or_else(|| "Shell".to_string());
+                    let p_icon = p_cfg.map(|c| c.pane_kind.icon()).unwrap_or("🖥");
                     format!(
-                        "🪟 {}  →  <b>🖥 {} #{} ({})</b>",
+                        "🪟 {}  →  <b>{} {} #{} ({})</b>",
                         tr("Window"),
+                        p_icon,
                         tr("Pane"),
                         p_idx + 1,
                         glib::markup_escape_text(&p_title)
@@ -1843,6 +1869,7 @@ impl PreferencesWindow {
                         ui_font_size: Some(s.effective_ui_font_size()),
                         root: LayoutNode::Pane {
                             title: "Shell".to_string(),
+                            pane_kind: PaneKind::Shell,
                             command: None,
                             working_dir: None,
                             opacity: None,
@@ -1946,7 +1973,6 @@ impl PreferencesWindow {
             Rc::new(RefCell::new(HashMap::new()));
 
         if let Some(ref sel_pr) = selected_preset_opt {
-            // Root node: Window
             let is_win_sel = target == PresetEditorTarget::Window;
             let win_btn = gtk4::Button::new();
             win_btn.add_css_class("flat");
@@ -1985,7 +2011,6 @@ impl PreferencesWindow {
             }
             tree_box.append(&win_btn);
 
-            // Child nodes under Window
             let mut pane_counter = 0usize;
             self.append_preset_tree_node(
                 &tree_box,
@@ -2006,7 +2031,6 @@ impl PreferencesWindow {
         col2_scroll.set_child(Some(&tree_box));
         col2.append(&col2_scroll);
 
-        // Quick split/add/remove toolbar at bottom of Hierarchy column
         if let Some(sel_idx) = selected_idx_opt
             && let Some(ref sel_pr) = selected_preset_opt
         {
@@ -2151,7 +2175,6 @@ impl PreferencesWindow {
 
                 col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-                // Preset Name row
                 let rename_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let rename_lbl = gtk4::Label::new(Some(&tr("Preset Name")));
                 rename_lbl.set_width_chars(22);
@@ -2188,7 +2211,6 @@ impl PreferencesWindow {
                 rename_row.append(&rename_btn);
                 col3.append(&rename_row);
 
-                // Run on Startup + Quick Actions row
                 let startup_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let startup_chk = gtk4::CheckButton::with_label(&tr("Run on Startup"));
                 startup_chk.set_active(selected_preset.run_on_startup);
@@ -2248,7 +2270,6 @@ impl PreferencesWindow {
 
                 col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
-                // Window Opacity
                 let win_op_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let win_op_chk = gtk4::CheckButton::with_label(&tr("Window Opacity"));
                 win_op_chk.set_width_request(210);
@@ -2293,7 +2314,6 @@ impl PreferencesWindow {
                 win_op_row.append(&win_op_scale);
                 col3.append(&win_op_row);
 
-                // Window Terminal Font Size (pt)
                 let win_fs_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let win_fs_chk =
                     gtk4::CheckButton::with_label(&tr("Window Terminal Font Size (pt)"));
@@ -2340,7 +2360,6 @@ impl PreferencesWindow {
                 win_fs_row.append(&win_fs_scale);
                 col3.append(&win_fs_row);
 
-                // Window UI Font Size (pt)
                 let win_uifs_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let win_uifs_chk = gtk4::CheckButton::with_label(&tr("Window UI Font Size (pt)"));
                 win_uifs_chk.set_width_request(210);
@@ -2393,7 +2412,8 @@ impl PreferencesWindow {
                 let hdr_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
                 let pane_lbl = gtk4::Label::new(None);
                 pane_lbl.set_markup(&format!(
-                    "<b>3. 🖥 {} #{} — {}</b>",
+                    "<b>3. {} {} #{} — {}</b>",
+                    cfg.pane_kind.icon(),
                     tr("Pane"),
                     pane_idx + 1,
                     tr("Panel Settings")
@@ -2403,7 +2423,6 @@ impl PreferencesWindow {
                 hdr_row.append(&pane_lbl);
                 col3.append(&hdr_row);
 
-                // Split / Tab / Remove actions for this panel
                 let struct_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
                 let split_h_btn = gtk4::Button::with_label(&tr("Split Horizontally"));
                 {
@@ -2483,6 +2502,54 @@ impl PreferencesWindow {
 
                 col3.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
+                // Panel Type (Shell / Empty) row
+                let kind_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                let kind_lbl = gtk4::Label::new(Some(&tr("Panel Type")));
+                kind_lbl.set_width_chars(22);
+                kind_lbl.set_halign(gtk4::Align::Start);
+                #[allow(deprecated)]
+                let kind_combo = gtk4::ComboBoxText::new();
+                for &k in PaneKind::ALL {
+                    #[allow(deprecated)]
+                    kind_combo.append(
+                        Some(k.id_str()),
+                        &format!("{} {}", k.icon(), k.display_name()),
+                    );
+                }
+                #[allow(deprecated)]
+                let _ = kind_combo.set_active_id(Some(cfg.pane_kind.id_str()));
+                kind_combo.set_hexpand(true);
+                disable_combo_scroll(&kind_combo);
+                {
+                    let p_weak = Rc::downgrade(self);
+                    kind_combo.connect_changed(move |c| {
+                        #[allow(deprecated)]
+                        if let Some(id) = c.active_id()
+                            && let Some(new_kind) = PaneKind::from_str_opt(&id)
+                        {
+                            let mut st = PresetStore::load();
+                            if let Some(pr) = st.presets.get_mut(selected_idx) {
+                                pr.root.update_pane_at(pane_idx, |pane_cfg| {
+                                    pane_cfg.pane_kind = new_kind;
+                                    if new_kind == PaneKind::Empty
+                                        && (pane_cfg.title == "/bin/bash"
+                                        || pane_cfg.title == "Shell")
+                                    {
+                                        pane_cfg.title = new_kind.default_title();
+                                    }
+                                });
+                                let _ = st.save();
+                            }
+                            if let Some(p) = p_weak.upgrade() {
+                                p.refresh_presets_ui();
+                            }
+                        }
+                    });
+                }
+                kind_row.append(&kind_lbl);
+                kind_row.append(&kind_combo);
+                col3.append(&kind_row);
+
                 // Title row
                 let title_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
                 let title_lbl = gtk4::Label::new(Some(&tr("Pane Title")));
@@ -2493,12 +2560,13 @@ impl PreferencesWindow {
                 title_entry.set_hexpand(true);
                 {
                     let labels_map = Rc::clone(&pane_tree_labels);
+                    let cur_kind = cfg.pane_kind;
                     title_entry.connect_changed(move |e| {
                         let mut st = PresetStore::load();
                         if let Some(pr) = st.presets.get_mut(selected_idx) {
                             let txt = e.text().to_string();
                             let effective_title = if txt.trim().is_empty() {
-                                "Shell".to_string()
+                                cur_kind.default_title()
                             } else {
                                 txt
                             };
@@ -2508,7 +2576,8 @@ impl PreferencesWindow {
                             let _ = st.save();
                             if let Some(tree_lbl) = labels_map.borrow().get(&pane_idx) {
                                 tree_lbl.set_markup(&format!(
-                                    "🖥 <b>{} #{}</b> <small>({})</small>",
+                                    "{} <b>{} #{}</b> <small>({})</small>",
+                                    cur_kind.icon(),
                                     tr("Pane"),
                                     pane_idx + 1,
                                     glib::markup_escape_text(&effective_title)
@@ -2559,6 +2628,7 @@ impl PreferencesWindow {
                 cmd_entry.set_placeholder_text(Some("e.g. nvim, htop, cargo test"));
                 cmd_entry.set_text(cfg.command.as_deref().unwrap_or(""));
                 cmd_entry.set_hexpand(true);
+                cmd_entry.set_sensitive(cfg.pane_kind == PaneKind::Shell);
                 {
                     cmd_entry.connect_changed(move |e| {
                         let mut st = PresetStore::load();
@@ -2675,7 +2745,7 @@ impl PreferencesWindow {
                 p_fs_row.append(&p_fs_scale);
                 col3.append(&p_fs_row);
 
-                // Panel Show Scrollbar row (defaults to original global setting when None)
+                // Panel Show Scrollbar row
                 let default_sb = self.workspace.settings().show_scrollbar;
                 let effective_sb = cfg.show_scrollbar.unwrap_or(default_sb);
                 let p_sb_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -2692,7 +2762,7 @@ impl PreferencesWindow {
 
                 let p_sb_def_btn = gtk4::Button::with_label(&tr("Default"));
                 p_sb_def_btn.set_sensitive(cfg.show_scrollbar.is_some());
-
+                
                 let sb_updating = Rc::new(Cell::new(false));
                 {
                     let upd = Rc::clone(&sb_updating);
@@ -2765,7 +2835,12 @@ impl PreferencesWindow {
         let indent_px = (depth as i32) * 14;
 
         match node {
-            LayoutNode::Pane { title, command, .. } => {
+            LayoutNode::Pane {
+                title,
+                pane_kind,
+                command,
+                ..
+            } => {
                 let p_idx = *pane_counter;
                 *pane_counter += 1;
 
@@ -2792,7 +2867,8 @@ impl PreferencesWindow {
 
                 let lbl = gtk4::Label::new(None);
                 lbl.set_markup(&format!(
-                    "🖥 <b>{} #{}</b> <small>({}{})</small>",
+                    "{} <b>{} #{}</b> <small>({}{})</small>",
+                    pane_kind.icon(),
                     tr("Pane"),
                     p_idx + 1,
                     glib::markup_escape_text(title),

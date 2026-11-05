@@ -49,6 +49,7 @@ pub struct CliOptions {
     pub target_fps: Option<u32>,
     pub explicit_mode: Option<PollMode>,
     pub open_prefs: bool,
+    pub select_pane_type_on_split: Option<bool>,
 }
 
 impl CliOptions {
@@ -60,6 +61,14 @@ impl CliOptions {
         } else {
             PollMode::EventDriven
         }
+    }
+}
+
+pub fn parse_bool_flag_opt(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" | "enable" | "enabled" => Some(true),
+        "0" | "false" | "off" | "no" | "disable" | "disabled" => Some(false),
+        _ => None,
     }
 }
 
@@ -111,6 +120,19 @@ where
             }
             "--prefs" => {
                 opts.open_prefs = true;
+            }
+            "-p" | "--select-pane" | "--select-pane-type" | "--pane-selector" => {
+                if i + 1 < raw.len()
+                    && let Some(b) = parse_bool_flag_opt(&raw[i + 1])
+                {
+                    i += 1;
+                    opts.select_pane_type_on_split = Some(b);
+                } else {
+                    opts.select_pane_type_on_split = Some(true);
+                }
+            }
+            "--no-select-pane" | "--no-select-pane-type" | "--no-pane-selector" => {
+                opts.select_pane_type_on_split = Some(false);
             }
             "--event" | "--event-driven" => {
                 opts.explicit_mode = Some(PollMode::EventDriven);
@@ -173,6 +195,14 @@ where
                         opts.explicit_mode = Some(m);
                     }
                 } else if let Some(val) = other
+                    .strip_prefix("--select-pane=")
+                    .or_else(|| other.strip_prefix("--select-pane-type="))
+                    .or_else(|| other.strip_prefix("--pane-selector="))
+                {
+                    if let Some(b) = parse_bool_flag_opt(val) {
+                        opts.select_pane_type_on_split = Some(b);
+                    }
+                } else if let Some(val) = other
                     .strip_prefix("--command=")
                     .or_else(|| other.strip_prefix("--execute="))
                 {
@@ -208,6 +238,8 @@ pub fn format_help_string() -> String {
          \x20   --mode <event|poll>          Set repaint mode\n\
          \x20   --event, --event-driven      Use event-driven repaint mode\n\
          \x20   --poll, --continuous         Use continuous FPS polling mode\n\
+         \x20   -p, --select-pane-type       Enable panel type selector on split\n\
+         \x20   --no-select-pane-type        Disable panel type selector on split\n\
          \x20   --prefs                      Open Preferences window on startup\n",
         name = APP_PROGRAM_NAME,
         ver = APP_VERSION
@@ -264,6 +296,9 @@ fn main() {
     let mut settings = ThemeSettings::load(cli.config_json.as_deref());
     if let Some(fps) = cli.target_fps {
         settings.target_fps = fps.clamp(1, 240);
+    }
+    if let Some(select_pane) = cli.select_pane_type_on_split {
+        settings.select_pane_type_on_split = select_pane;
     }
     load_catalog_for_language(&settings.language, &settings.custom_po_path);
 

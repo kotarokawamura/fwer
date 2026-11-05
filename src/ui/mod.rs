@@ -6,7 +6,9 @@
 // of the License.
 
 pub mod app;
+pub mod empty_pane;
 pub mod pane;
+pub mod pane_selector;
 pub mod scheduler;
 pub mod state;
 pub mod titlebar;

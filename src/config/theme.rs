@@ -192,11 +192,14 @@ pub struct ThemeSettings {
     pub separator_color: String,
     pub separator_border_color: String,
     pub terminal_bg_color: String,
+    pub cursor_color: String,
+    pub selection_bg_color: String,
     pub terminal_bg_opacity: f32,
     pub separator_width: f32,
     pub frame_border_width: f32,
     pub target_fps: u32,
     pub show_scrollbar: bool,
+    pub select_pane_type_on_split: bool,
     pub font_path: String,
     pub ui_font_size: f32,
     pub terminal_font_size: f32,
@@ -217,11 +220,14 @@ impl Default for ThemeSettings {
             separator_color: String::new(),
             separator_border_color: String::new(),
             terminal_bg_color: "#000000".to_string(),
+            cursor_color: String::new(),
+            selection_bg_color: String::new(),
             terminal_bg_opacity: 1.0,
             separator_width: 2.0,
             frame_border_width: 5.0,
             target_fps: 30,
             show_scrollbar: true,
+            select_pane_type_on_split: false,
             font_path: default_debian_cjk_fallback(),
             ui_font_size: 15.0,
             terminal_font_size: 15.0,
@@ -324,6 +330,14 @@ impl ThemeSettings {
 
     pub fn effective_terminal_bg_rgb(&self) -> RgbColor {
         parse_color(&self.terminal_bg_color).unwrap_or(RgbColor(0, 0, 0))
+    }
+
+    pub fn effective_cursor_rgb(&self) -> RgbColor {
+        parse_color(&self.cursor_color).unwrap_or(RgbColor(220, 220, 220))
+    }
+
+    pub fn effective_selection_bg_rgb(&self) -> RgbColor {
+        parse_color(&self.selection_bg_color).unwrap_or(RgbColor(230, 230, 230))
     }
 
     pub fn effective_terminal_bg_opacity(&self) -> f32 {

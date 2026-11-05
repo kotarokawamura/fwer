@@ -10,6 +10,21 @@ fn test_parse_color_hex_and_rgb() {
 }
 
 #[test]
+fn test_effective_cursor_and_selection_colors() {
+    let mut settings = ThemeSettings::default();
+    assert_eq!(settings.effective_cursor_rgb(), RgbColor(220, 220, 220));
+    assert_eq!(
+        settings.effective_selection_bg_rgb(),
+        RgbColor(230, 230, 230)
+    );
+
+    settings.cursor_color = "#ff5500".to_string();
+    settings.selection_bg_color = "rgb(38, 79, 120)".to_string();
+    assert_eq!(settings.effective_cursor_rgb(), RgbColor(255, 85, 0));
+    assert_eq!(settings.effective_selection_bg_rgb(), RgbColor(38, 79, 120));
+}
+
+#[test]
 fn test_split_shortcut_bindings_with_comma_key() {
     let bindings = split_shortcut_bindings("Ctrl+, / Super+,");
     assert_eq!(bindings, vec!["Ctrl+,", "Super+,"]);

@@ -112,6 +112,12 @@ msgstr "Current Font"
 msgid "Terminal Background Color"
 msgstr "Terminal Background Color"
 
+msgid "Terminal Cursor Color"
+msgstr "Terminal Cursor Color"
+
+msgid "Selection Highlight Color"
+msgstr "Selection Highlight Color"
+
 msgid "Terminal Background Opacity"
 msgstr "Terminal Background Opacity"
 
