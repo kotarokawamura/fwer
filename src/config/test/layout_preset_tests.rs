@@ -30,6 +30,7 @@ fn test_workspace_preset_store_and_node_operations() {
         ui_font_size: Some(15.0),
         root: LayoutNode::Pane {
             title: "Main".to_string(),
+            pane_kind: Default::default(),
             command: Some("nvim".to_string()),
             working_dir: Some("~/projects/app".to_string()),
             opacity: Some(0.85),
@@ -69,13 +70,19 @@ fn test_workspace_preset_store_and_node_operations() {
 
     store.upsert(p1.clone());
     assert_eq!(store.presets.len(), 1);
-    assert_eq!(store.startup_preset().map(|p| p.name.as_str()), Some("Dev Set"));
+    assert_eq!(
+        store.startup_preset().map(|p| p.name.as_str()),
+        Some("Dev Set")
+    );
 
     let mut p2 = WorkspacePreset::default();
     p2.name = "Ops Set".to_string();
     store.upsert(p2);
     store.set_startup_preset(Some("Ops Set"));
-    assert_eq!(store.startup_preset().map(|p| p.name.as_str()), Some("Ops Set"));
+    assert_eq!(
+        store.startup_preset().map(|p| p.name.as_str()),
+        Some("Ops Set")
+    );
     assert!(!store.find_by_name("Dev Set").unwrap().run_on_startup);
 
     assert!(store.presets[0].root.remove_pane_at(1));
