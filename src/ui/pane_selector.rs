@@ -10,11 +10,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::config::theme::snap_half_second_timeout;
 use crate::i18n::tr;
 use crate::ui::pane::PaneKind;
 use crate::ui::state::TileId;
@@ -79,16 +81,32 @@ pub fn next_selector_index(current: usize, len: usize, delta: isize) -> usize {
     (((cur + delta) % l + l) % l) as usize
 }
 
+/// Converts a timeout in seconds into `0.5`-second tick steps (`0` means timer disabled).
+pub fn timeout_secs_to_half_steps(timeout_secs: f32) -> u32 {
+    (snap_half_second_timeout(timeout_secs) * 2.0).round() as u32
+}
+
+/// Converts remaining `0.5`-second tick steps back into seconds.
+pub fn half_steps_to_secs(steps: u32) -> f32 {
+    steps as f32 * 0.5
+}
+
 pub struct PaneSelectorWidget {
     pub backdrop: gtk4::Box,
     pub card: gtk4::Box,
     title_label: gtk4::Label,
+    timer_label: gtk4::Label,
     hint_label: gtk4::Label,
     items_box: gtk4::Box,
     row_widgets: RefCell<Vec<gtk4::Box>>,
     items: Vec<PaneKind>,
     selected_index: Cell<usize>,
     pending_request: Cell<Option<PendingSplitRequest>>,
+    remaining_half_steps: Cell<u32>,
+    auto_timer_active: Cell<bool>,
+    timer_source: RefCell<Option<glib::SourceId>>,
+    initial_pointer_pos: Cell<Option<(f64, f64)>>,
+    pointer_moved: Cell<bool>,
     on_confirm: Rc<dyn Fn(PendingSplitRequest, PaneKind)>,
     on_cancel: Rc<dyn Fn()>,
 }
@@ -120,10 +138,22 @@ impl PaneSelectorWidget {
         let v_center_spacer_bottom = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         v_center_spacer_bottom.set_vexpand(true);
 
+        let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        header_row.set_hexpand(true);
+
         let title_label = gtk4::Label::new(None);
         title_label.set_halign(gtk4::Align::Start);
+        title_label.set_hexpand(true);
         title_label.add_css_class("fwer-pane-selector-title");
-        card.append(&title_label);
+        header_row.append(&title_label);
+
+        let timer_label = gtk4::Label::new(None);
+        timer_label.set_halign(gtk4::Align::End);
+        timer_label.set_visible(false);
+        timer_label.add_css_class("fwer-pane-selector-timer");
+        header_row.append(&timer_label);
+
+        card.append(&header_row);
 
         card.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
 
@@ -144,12 +174,18 @@ impl PaneSelectorWidget {
             backdrop,
             card,
             title_label,
+            timer_label,
             hint_label,
             items_box,
             row_widgets: RefCell::new(Vec::new()),
             items: PaneKind::ALL.to_vec(),
             selected_index: Cell::new(0),
             pending_request: Cell::new(None),
+            remaining_half_steps: Cell::new(0),
+            auto_timer_active: Cell::new(false),
+            timer_source: RefCell::new(None),
+            initial_pointer_pos: Cell::new(None),
+            pointer_moved: Cell::new(false),
             on_confirm: Rc::new(on_confirm),
             on_cancel: Rc::new(on_cancel),
         });
@@ -171,7 +207,7 @@ impl PaneSelectorWidget {
                 };
                 if !sel.is_open() {
                     return;
-                }
+                };
                 if let Some(card_bounds) = sel.card.compute_bounds(&sel.backdrop)
                     && card_bounds.contains_point(&gtk4::graphene::Point::new(x as f32, y as f32))
                 {
@@ -181,6 +217,29 @@ impl PaneSelectorWidget {
                 sel.cancel();
             });
             self.backdrop.add_controller(click_bg);
+        }
+
+        // Pointer motion on the backdrop cancels the auto-confirm timer once the cursor moves
+        {
+            let bg_motion = gtk4::EventControllerMotion::new();
+            let sel_weak = Rc::downgrade(self);
+            bg_motion.connect_motion(move |_, x, y| {
+                let Some(sel) = sel_weak.upgrade() else {
+                    return;
+                };
+                if !sel.is_open() {
+                    return;
+                }
+                if let Some((ix, iy)) = sel.initial_pointer_pos.get() {
+                    if (x - ix).hypot(y - iy) >= 2.0 {
+                        sel.pointer_moved.set(true);
+                        sel.pause_auto_timer_on_cursor_move();
+                    }
+                } else {
+                    sel.initial_pointer_pos.set(Some((x, y)));
+                }
+            });
+            self.backdrop.add_controller(bg_motion);
         }
 
         // Key controller directly on the card
@@ -234,21 +293,29 @@ impl PaneSelectorWidget {
             desc_lbl.add_css_class("dim-label");
             row_box.append(&desc_lbl);
 
-            // Mouse hover selects this item
+            // Mouse hover selects this item and stops the auto-confirm timer when cursor moves
             {
                 let motion = gtk4::EventControllerMotion::new();
                 let sel_weak1 = Rc::downgrade(self);
                 motion.connect_enter(move |_, _, _| {
-                    if let Some(sel) = sel_weak1.upgrade() {
+                    if let Some(sel) = sel_weak1.upgrade()
+                        && sel.is_open()
+                        && sel.pointer_moved.get()
+                    {
+                        sel.pause_auto_timer_on_cursor_move();
                         sel.set_selected_index(idx);
                     }
                 });
                 let sel_weak2 = Rc::downgrade(self);
                 motion.connect_motion(move |_, _, _| {
                     if let Some(sel) = sel_weak2.upgrade()
-                        && sel.selected_index.get() != idx
+                        && sel.is_open()
+                        && sel.pointer_moved.get()
                     {
-                        sel.set_selected_index(idx);
+                        sel.pause_auto_timer_on_cursor_move();
+                        if sel.selected_index.get() != idx {
+                            sel.set_selected_index(idx);
+                        }
                     }
                 });
                 row_box.add_controller(motion);
@@ -288,6 +355,41 @@ impl PaneSelectorWidget {
         }
     }
 
+    fn refresh_timer_label(&self) {
+        let steps = self.remaining_half_steps.get();
+        if self.auto_timer_active.get() && steps > 0 {
+            let secs = half_steps_to_secs(steps);
+            self.timer_label
+                .set_markup(&format!("<b>⏱ {:.1}s</b>", secs));
+            self.timer_label.set_visible(true);
+        } else {
+            self.timer_label.set_visible(false);
+        }
+    }
+
+    fn stop_auto_timer(&self) {
+        self.auto_timer_active.set(false);
+        self.remaining_half_steps.set(0);
+        if let Some(source_id) = self.timer_source.borrow_mut().take() {
+            source_id.remove();
+        }
+        self.refresh_timer_label();
+    }
+
+    pub fn pause_auto_timer_on_cursor_move(&self) {
+        if self.auto_timer_active.get() {
+            self.stop_auto_timer();
+        }
+    }
+
+    pub fn is_auto_timer_active(&self) -> bool {
+        self.auto_timer_active.get()
+    }
+
+    pub fn remaining_half_steps(&self) -> u32 {
+        self.remaining_half_steps.get()
+    }
+
     pub fn is_open(&self) -> bool {
         self.pending_request.get().is_some() && self.backdrop.is_visible()
     }
@@ -313,11 +415,23 @@ impl PaneSelectorWidget {
     }
 
     pub fn open(self: &Rc<Self>, target_id: TileId, horizontal: bool) {
+        self.open_with_timeout(target_id, horizontal, 0.0);
+    }
+
+    pub fn open_with_timeout(
+        self: &Rc<Self>,
+        target_id: TileId,
+        horizontal: bool,
+        timeout_secs: f32,
+    ) {
+        self.stop_auto_timer();
         self.pending_request.set(Some(PendingSplitRequest {
             target_id,
             horizontal,
         }));
         self.selected_index.set(0);
+        self.initial_pointer_pos.set(None);
+        self.pointer_moved.set(false);
         self.rebuild_rows();
 
         let dir_label = if horizontal {
@@ -340,6 +454,39 @@ impl PaneSelectorWidget {
         self.backdrop.set_visible(true);
         self.card.grab_focus();
 
+        let steps = timeout_secs_to_half_steps(timeout_secs);
+        if steps > 0 {
+            self.remaining_half_steps.set(steps);
+            self.auto_timer_active.set(true);
+            self.refresh_timer_label();
+
+            let sel_weak = Rc::downgrade(self);
+            let source_id = glib::timeout_add_local(Duration::from_millis(500), move || {
+                let Some(sel) = sel_weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                if !sel.is_open() || !sel.auto_timer_active.get() {
+                    *sel.timer_source.borrow_mut() = None;
+                    return glib::ControlFlow::Break;
+                }
+                let rem = sel.remaining_half_steps.get().saturating_sub(1);
+                sel.remaining_half_steps.set(rem);
+                if rem == 0 {
+                    sel.auto_timer_active.set(false);
+                    *sel.timer_source.borrow_mut() = None;
+                    sel.refresh_timer_label();
+                    sel.confirm_current();
+                    glib::ControlFlow::Break
+                } else {
+                    sel.refresh_timer_label();
+                    glib::ControlFlow::Continue
+                }
+            });
+            *self.timer_source.borrow_mut() = Some(source_id);
+        } else {
+            self.refresh_timer_label();
+        }
+
         let card_clone = self.card.clone();
         glib::idle_add_local_once(move || {
             if card_clone.is_visible() {
@@ -349,6 +496,7 @@ impl PaneSelectorWidget {
     }
 
     pub fn confirm_current(&self) {
+        self.stop_auto_timer();
         let Some(req) = self.pending_request.take() else {
             return;
         };
@@ -358,6 +506,7 @@ impl PaneSelectorWidget {
     }
 
     pub fn cancel(&self) {
+        self.stop_auto_timer();
         if self.pending_request.take().is_some() {
             self.backdrop.set_visible(false);
             (self.on_cancel)();
@@ -371,11 +520,13 @@ impl PaneSelectorWidget {
         }
         match map_selector_key(key) {
             Some(SelectorKeyAction::MoveNext) => {
+                self.pause_auto_timer_on_cursor_move();
                 let next = next_selector_index(self.selected_index.get(), self.items.len(), 1);
                 self.set_selected_index(next);
                 true
             }
             Some(SelectorKeyAction::MovePrev) => {
+                self.pause_auto_timer_on_cursor_move();
                 let prev = next_selector_index(self.selected_index.get(), self.items.len(), -1);
                 self.set_selected_index(prev);
                 true

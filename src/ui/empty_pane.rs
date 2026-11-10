@@ -20,10 +20,16 @@ use gtk4::glib;
 use gtk4::prelude::*;
 
 use crate::config::theme::{ThemeSettings, matches_gdk_shortcut};
-use crate::ui::pane::{PaneEvent, SpecialModeKey};
+use crate::ui::pane::{PaneEvent, PaneShortcutAction, SpecialModeKey};
 use crate::ui::state::{InteractionMode, PaneContext, TileId};
 use crate::ui::titlebar::{TitlebarEvent, TitlebarWidget};
 use crate::ui::tree_ops::Direction;
+
+/// Returns `true` when the key press is `Ctrl+D` (`C-d`), which closes an empty pane
+/// just like EOF exits a shell pane.
+pub fn is_empty_pane_eof_close_key(key: gdk::Key, mods: gdk::ModifierType) -> bool {
+    matches_gdk_shortcut("Ctrl+D", key, mods)
+}
 
 /// Frame border thickness (in px) kept around the pass-through hole of an empty pane
 /// so that the panel frame itself remains visible and interactive.
@@ -71,7 +77,7 @@ pub struct EmptyPaneWidget {
     pub root: gtk4::Box,
     pub titlebar: Rc<TitlebarWidget>,
     pub body_frame: gtk4::Box,
-    pub pass_through_area: gtk4::Box,
+    pub pass_through_area: gtk4::DrawingArea,
     pub highlight_frame: gtk4::Box,
     current_mode: Rc<Cell<InteractionMode>>,
     is_hovered: Rc<Cell<bool>>,
@@ -80,6 +86,7 @@ pub struct EmptyPaneWidget {
     opacity_confirmed: Rc<Cell<bool>>,
     initial_working_dir: RefCell<Option<PathBuf>>,
     settings_cache: Rc<RefCell<ThemeSettings>>,
+    on_event: Rc<dyn Fn(PaneEvent)>,
 }
 
 impl EmptyPaneWidget {
@@ -119,7 +126,7 @@ impl EmptyPaneWidget {
         body_frame.set_vexpand(true);
         body_frame.add_css_class("fwer-empty-pane-body");
 
-        let pass_through_area = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let pass_through_area = gtk4::DrawingArea::new();
         pass_through_area.set_hexpand(true);
         pass_through_area.set_vexpand(true);
         pass_through_area.set_focusable(true);
@@ -153,6 +160,7 @@ impl EmptyPaneWidget {
             opacity_confirmed: Rc::new(Cell::new(false)),
             initial_working_dir: RefCell::new(working_dir.map(|p| p.to_path_buf())),
             settings_cache: Rc::new(RefCell::new(settings.clone())),
+            on_event: Rc::clone(&on_event),
         });
 
         pane_rc.setup_controllers(on_event);
@@ -217,82 +225,15 @@ impl EmptyPaneWidget {
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             let pane_weak = Rc::downgrade(self);
-            let cb = Rc::clone(&on_event);
             key_ctrl.connect_key_pressed(move |_ctrl, key, _keycode, mods| {
                 let Some(pane) = pane_weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                let mode = pane.current_mode.get();
-                let sc = pane.settings_cache.borrow().shortcuts.clone();
-
-                if let Some(toggle_spec) = mode.toggle_shortcut(&sc) {
-                    if matches_gdk_shortcut(toggle_spec, key, mods) {
-                        cb(PaneEvent::CancelSpecialMode);
-                        return glib::Propagation::Stop;
-                    }
-
-                    let keep = mods.contains(gdk::ModifierType::CONTROL_MASK)
-                        || mods.contains(gdk::ModifierType::SHIFT_MASK)
-                        || mods.contains(gdk::ModifierType::SUPER_MASK);
-
-                    let special_key = match key {
-                        gdk::Key::Escape | gdk::Key::q | gdk::Key::Q => {
-                            Some(SpecialModeKey::Cancel)
-                        }
-                        gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::space => {
-                            if keep {
-                                Some(SpecialModeKey::KeepSelecting)
-                            } else {
-                                Some(SpecialModeKey::Confirm)
-                            }
-                        }
-                        gdk::Key::Left | gdk::Key::KP_Left | gdk::Key::h | gdk::Key::H => {
-                            Some(SpecialModeKey::Move(Direction::Left))
-                        }
-                        gdk::Key::Right | gdk::Key::KP_Right | gdk::Key::l | gdk::Key::L => {
-                            Some(SpecialModeKey::Move(Direction::Right))
-                        }
-                        gdk::Key::Up | gdk::Key::KP_Up | gdk::Key::k | gdk::Key::K => {
-                            Some(SpecialModeKey::Move(Direction::Up))
-                        }
-                        gdk::Key::Down | gdk::Key::KP_Down | gdk::Key::j | gdk::Key::J => {
-                            Some(SpecialModeKey::Move(Direction::Down))
-                        }
-                        gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => {
-                            Some(SpecialModeKey::AdjustOpacity(1))
-                        }
-                        gdk::Key::minus | gdk::Key::KP_Subtract => {
-                            Some(SpecialModeKey::AdjustOpacity(-1))
-                        }
-                        _ => None,
-                    };
-
-                    if let Some(sk) = special_key {
-                        if sk == SpecialModeKey::Cancel {
-                            cb(PaneEvent::CancelSpecialMode);
-                        } else {
-                            cb(PaneEvent::SpecialModeKeyInput {
-                                tile_id: pane.tile_id,
-                                key: sk,
-                            });
-                        }
-                    }
-                    return glib::Propagation::Stop;
+                if pane.handle_key_press(key, mods) {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
                 }
-
-                if mode != InteractionMode::Normal {
-                    return glib::Propagation::Stop;
-                }
-
-                if let Some(action) = sc.match_pane_shortcut(key, mods) {
-                    cb(PaneEvent::ShortcutTriggered {
-                        tile_id: pane.tile_id,
-                        action,
-                    });
-                    return glib::Propagation::Stop;
-                }
-
-                glib::Propagation::Proceed
             });
             self.pass_through_area.add_controller(key_ctrl);
         }
@@ -371,6 +312,91 @@ impl EmptyPaneWidget {
 
     pub fn grab_terminal_focus(&self) {
         self.pass_through_area.grab_focus();
+        let area = self.pass_through_area.clone();
+        glib::idle_add_local_once(move || {
+            if area.is_mapped() {
+                area.grab_focus();
+            }
+        });
+    }
+
+    pub fn handle_key_press(&self, key: gdk::Key, mods: gdk::ModifierType) -> bool {
+        let mode = self.current_mode.get();
+        let sc = self.settings_cache.borrow().shortcuts.clone();
+
+        if let Some(toggle_spec) = mode.toggle_shortcut(&sc) {
+            if matches_gdk_shortcut(toggle_spec, key, mods) {
+                (self.on_event)(PaneEvent::CancelSpecialMode);
+                return true;
+            }
+
+            let keep = mods.contains(gdk::ModifierType::CONTROL_MASK)
+                || mods.contains(gdk::ModifierType::SHIFT_MASK)
+                || mods.contains(gdk::ModifierType::SUPER_MASK);
+
+            let special_key = match key {
+                gdk::Key::Escape | gdk::Key::q | gdk::Key::Q => Some(SpecialModeKey::Cancel),
+                gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::space => {
+                    if keep {
+                        Some(SpecialModeKey::KeepSelecting)
+                    } else {
+                        Some(SpecialModeKey::Confirm)
+                    }
+                }
+                gdk::Key::Left | gdk::Key::KP_Left | gdk::Key::h | gdk::Key::H => {
+                    Some(SpecialModeKey::Move(Direction::Left))
+                }
+                gdk::Key::Right | gdk::Key::KP_Right | gdk::Key::l | gdk::Key::L => {
+                    Some(SpecialModeKey::Move(Direction::Right))
+                }
+                gdk::Key::Up | gdk::Key::KP_Up | gdk::Key::k | gdk::Key::K => {
+                    Some(SpecialModeKey::Move(Direction::Up))
+                }
+                gdk::Key::Down | gdk::Key::KP_Down | gdk::Key::j | gdk::Key::J => {
+                    Some(SpecialModeKey::Move(Direction::Down))
+                }
+                gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => {
+                    Some(SpecialModeKey::AdjustOpacity(1))
+                }
+                gdk::Key::minus | gdk::Key::KP_Subtract => Some(SpecialModeKey::AdjustOpacity(-1)),
+                _ => None,
+            };
+
+            if let Some(sk) = special_key {
+                if sk == SpecialModeKey::Cancel {
+                    (self.on_event)(PaneEvent::CancelSpecialMode);
+                } else {
+                    (self.on_event)(PaneEvent::SpecialModeKeyInput {
+                        tile_id: self.tile_id,
+                        key: sk,
+                    });
+                }
+            }
+            return true;
+        }
+
+        if mode != InteractionMode::Normal {
+            return true;
+        }
+
+        if let Some(action) = sc.match_pane_shortcut(key, mods) {
+            (self.on_event)(PaneEvent::ShortcutTriggered {
+                tile_id: self.tile_id,
+                action,
+            });
+            return true;
+        }
+
+        if is_empty_pane_eof_close_key(key, mods) {
+            (self.on_event)(PaneEvent::ShortcutTriggered {
+                tile_id: self.tile_id,
+                action: PaneShortcutAction::ClosePane,
+            });
+            return true;
+        }
+
+        // Prevent non-shortcut keys from leaking to inactive terminal panes when an empty pane is active
+        key != gdk::Key::Escape
     }
 
     pub fn finish_title_edit_if_active(&self) -> Option<String> {

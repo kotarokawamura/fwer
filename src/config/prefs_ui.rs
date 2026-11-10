@@ -22,7 +22,7 @@ use crate::config::layout_preset::{LayoutNode, PresetStore, WorkspacePreset};
 use crate::config::theme::{
     ShortcutSettings, ThemeSettings, cached_system_fonts, extract_font_family_from_path,
     format_recorded_shortcut, format_rgb_hex, is_font_cjk, is_font_monospace, is_valid_font_file,
-    matches_gdk_shortcut, parse_color, split_shortcut_bindings,
+    matches_gdk_shortcut, parse_color, snap_half_second_timeout, split_shortcut_bindings,
 };
 use crate::i18n::{
     active_entry_count, active_locale, discover_po_files, load_catalog_for_language, tr,
@@ -643,6 +643,17 @@ impl PreferencesWindow {
             });
         }
         vbox.append(&select_pane_chk);
+
+        self.add_slider_row(
+            &vbox,
+            &tr("Select Panel Type Timer (s)"),
+            s.effective_select_pane_type_timeout_secs() as f64,
+            0.0,
+            10.0,
+            0.5,
+            1,
+            |st, v| st.select_pane_type_timeout_secs = snap_half_second_timeout(v as f32),
+        );
 
         vbox.upcast()
     }

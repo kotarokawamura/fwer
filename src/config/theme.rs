@@ -73,12 +73,12 @@ macro_rules! define_shortcuts {
             }
         }
 
-        // action が指定された項目だけを集めて PaneShortcutAction enum を自動生成
+        ///Automatically generates the PaneShortcutAction enum from items that have a specified action
         define_shortcuts!(@collect_enum [] $( $field $(: $action)?, )*);
 
         impl ShortcutSettings {
-            /// 設定画面（prefs_ui.rs）の行構築用:
-            /// (slot_key, label, current_val, default_val) の一覧を定義順で返す
+            ///Returns a list of (slot_key, label, current_val, default_val) in definition order for
+            ///constructing the preferences UI rows.
             pub fn slots(&self) -> Vec<(&'static str, &'static str, &str, &'static str)> {
                 vec![
                     $(
@@ -87,7 +87,7 @@ macro_rules! define_shortcuts {
                 ]
             }
 
-            /// slot_key から現在の設定文字列を取得する
+            /// Get the current configuration string from the slot_key
             pub fn get_slot(&self, slot_key: &str) -> String {
                 match slot_key {
                     $(
@@ -97,7 +97,7 @@ macro_rules! define_shortcuts {
                 }
             }
 
-            /// slot_key に対応するフィールドを更新する（append 対応）
+            /// Updates the field matched with the slot_key (append supported).
             pub fn update_slot(&mut self, slot_key: &str, new_val: &str, append: bool) {
                 let update = |field: &mut String| {
                     if append && !field.trim().is_empty() {
@@ -158,25 +158,36 @@ macro_rules! define_shortcuts {
 
 // ショートカット定義リスト（今後ショートカットを増やす際はここに1行足すだけ）
 define_shortcuts! {
+    // Clipboard Operations
     copy => { label: "Copy", default: "Ctrl+Shift+C", action: Copy },
     paste => { label: "Paste", default: "Ctrl+Shift+V", action: Paste },
+
+    // Pane & Tab Operations
     split_horizontal => { label: "Split Horizontally", default: "Ctrl+Shift+E", action: SplitHorizontal },
     split_vertical => { label: "Split Vertically", default: "Ctrl+Shift+O", action: SplitVertical },
     new_tab => { label: "New Tab", default: "Ctrl+Shift+T", action: NewTab },
     close_pane => { label: "Close Pane", default: "Ctrl+Shift+W", action: ClosePane },
+
+    // Pane Navigation
     focus_next_pane => { label: "Focus Next Pane", default: "Ctrl+Tab", action: FocusNextPane },
     focus_prev_pane => { label: "Focus Prev Pane", default: "Ctrl+Shift+Tab", action: FocusPrevPane },
-    open_preferences => { label: "Open Preferences", default: "Ctrl+Shit+S", action: OpenPreferences },
-    close_preferences => { label: "Close Preferences", default: "Ctrl+Shift+W" },
-    toggle_collapse_preferences => { label: "Toggle Collapse Preferences", default: "Ctrl+Shift+M" },
+
+    // Settings Screen (& Resolving Key Conflicts with ClosePane / MoveMode)
+    open_preferences => { label: "Open Preferences", default: "Ctrl+Shift+S", action: OpenPreferences },
+    close_preferences => { label: "Close Preferences", default: "Ctrl+Shift+Q" },
+    toggle_collapse_preferences => { label: "Toggle Collapse Preferences", default: "Ctrl+Shift+P" },
+
+    // Screen Display & Zoom
     toggle_fullscreen => { label: "Toggle Fullscreen", default: "F11", action: ToggleFullscreen },
     zoom_in => { label: "Zoom In", default: "Super+=", action: ZoomIn },
     zoom_out => { label: "Zoom Out", default: "Super+-", action: ZoomOut },
     zoom_reset => { label: "Zoom Reset", default: "Super+0", action: ZoomReset },
+
+    // Mode Switching
     toggle_move_mode => { label: "Pane Move Mode", default: "Ctrl+Shift+M", action: ToggleMoveMode },
     toggle_resize_mode => { label: "Split Resize Mode", default: "Ctrl+Shift+R", action: ToggleResizeMode },
     toggle_broadcast_mode => { label: "Broadcast Mode", default: "Ctrl+Shift+B", action: ToggleBroadcastMode },
-    toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+0", action: ToggleOpacityMode },
+    toggle_opacity_mode => { label: "Opacity Adjust Mode", default: "Ctrl+Shift+U", action: ToggleOpacityMode },
     toggle_scrollbar => { label: "Toggle Scrollbar", default: "Ctrl+Shift+L", action: ToggleScrollbar },
 }
 
@@ -200,6 +211,7 @@ pub struct ThemeSettings {
     pub target_fps: u32,
     pub show_scrollbar: bool,
     pub select_pane_type_on_split: bool,
+    pub select_pane_type_timeout_secs: f32,
     pub font_path: String,
     pub ui_font_size: f32,
     pub terminal_font_size: f32,
@@ -228,6 +240,7 @@ impl Default for ThemeSettings {
             target_fps: 30,
             show_scrollbar: true,
             select_pane_type_on_split: false,
+            select_pane_type_timeout_secs: 1.5,
             font_path: default_debian_cjk_fallback(),
             ui_font_size: 15.0,
             terminal_font_size: 15.0,
@@ -235,6 +248,16 @@ impl Default for ThemeSettings {
             custom_po_path: String::new(),
             shortcuts: ShortcutSettings::default(),
         }
+    }
+}
+
+/// Snaps a panel-type selector timer value to `0.5`-second increments in `0.0..=10.0`.
+/// `0.0` disables the automatic confirmation timer.
+pub fn snap_half_second_timeout(val: f32) -> f32 {
+    if !val.is_finite() || val <= 0.0 {
+        0.0
+    } else {
+        ((val.clamp(0.0, 10.0) * 2.0).round()) / 2.0
     }
 }
 
@@ -248,6 +271,8 @@ impl ThemeSettings {
         } else {
             self.target_fps = self.target_fps.clamp(1, 240);
         }
+        self.select_pane_type_timeout_secs =
+            snap_half_second_timeout(self.select_pane_type_timeout_secs);
         self.ui_font_size = self.ui_font_size.clamp(8.0, 32.0);
         self.terminal_font_size = self.terminal_font_size.clamp(8.0, 48.0);
         if self.language.trim().is_empty() {
@@ -358,6 +383,10 @@ impl ThemeSettings {
         } else {
             self.target_fps.clamp(1, 240)
         }
+    }
+
+    pub fn effective_select_pane_type_timeout_secs(&self) -> f32 {
+        snap_half_second_timeout(self.select_pane_type_timeout_secs)
     }
 
     pub fn effective_ui_font_size(&self) -> f32 {

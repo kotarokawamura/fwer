@@ -1043,6 +1043,13 @@ impl PaneWidget {
         }
     }
 
+    pub fn handle_empty_pane_key_press(&self, key: gdk::Key, mods: gdk::ModifierType) -> bool {
+        match self {
+            Self::Terminal(_) => false,
+            Self::Empty(p) => p.handle_key_press(key, mods),
+        }
+    }
+
     pub fn finish_title_edit_if_active(&self) -> Option<String> {
         match self {
             Self::Terminal(p) => p.finish_title_edit_if_active(),

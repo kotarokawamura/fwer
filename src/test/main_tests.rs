@@ -27,7 +27,7 @@ fn test_cli_command_quoting() {
 
 #[test]
 fn test_version_and_help_output() {
-    assert_eq!(format_version_string(), "termin 0.0.3");
+    assert_eq!(format_version_string(), "fwer 0.0.3");
     assert!(format_help_string().contains("--maximize"));
     assert!(format_help_string().contains("--prefs"));
 }

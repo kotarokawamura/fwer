@@ -34,7 +34,7 @@ use crate::i18n::load_catalog_for_language;
 use crate::ui::app::FwerApp;
 use crate::ui::scheduler::PollMode;
 
-pub const APP_PROGRAM_NAME: &str = "termin";
+pub const APP_PROGRAM_NAME: &str = "fwer";
 pub const APP_VERSION: &str = "0.0.3";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

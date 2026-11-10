@@ -344,3 +344,18 @@ msgstr "Toggle Scrollbar"
 
 msgid "Read-Only"
 msgstr "Read-Only"
+
+msgid "Select Panel Type on Split"
+msgstr "Select Panel Type on Split"
+
+msgid "Select Panel Type Timer (s)"
+msgstr "Select Panel Type Timer (s)"
+
+msgid "Select Panel Type"
+msgstr "Select Panel Type"
+
+msgid "Shell Panel"
+msgstr "Shell Panel"
+
+msgid "Empty Panel"
+msgstr "Empty Panel"

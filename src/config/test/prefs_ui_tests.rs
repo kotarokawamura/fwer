@@ -57,3 +57,21 @@ fn test_is_valid_font_bytes() {
     otto.extend_from_slice(&[0u8; 16]);
     assert!(is_valid_font_bytes(&otto));
 }
+
+#[test]
+fn test_snap_half_second_timeout() {
+    assert_eq!(snap_half_second_timeout(-1.0), 0.0);
+    assert_eq!(snap_half_second_timeout(0.0), 0.0);
+    assert_eq!(snap_half_second_timeout(0.24), 0.0);
+    assert_eq!(snap_half_second_timeout(0.26), 0.5);
+    assert_eq!(snap_half_second_timeout(1.5), 1.5);
+    assert_eq!(snap_half_second_timeout(2.74), 2.5);
+    assert_eq!(snap_half_second_timeout(2.76), 3.0);
+    assert_eq!(snap_half_second_timeout(25.0), 10.0);
+
+    let mut st = ThemeSettings::default();
+    assert_eq!(st.effective_select_pane_type_timeout_secs(), 1.5);
+    st.select_pane_type_timeout_secs = 2.3;
+    st.sanitize();
+    assert_eq!(st.select_pane_type_timeout_secs, 2.5);
+}

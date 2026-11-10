@@ -45,3 +45,57 @@ fn test_encode_terminal_key_bytes() {
         Some(b"\x1b[24~".to_vec())
     );
 }
+
+#[test]
+fn test_pane_selector_half_second_steps_and_keys() {
+    use crate::ui::pane_selector::{
+        SelectorKeyAction, half_steps_to_secs, map_selector_key, next_selector_index,
+        timeout_secs_to_half_steps,
+    };
+
+    assert_eq!(timeout_secs_to_half_steps(0.0), 0);
+    assert_eq!(timeout_secs_to_half_steps(0.5), 1);
+    assert_eq!(timeout_secs_to_half_steps(1.5), 3);
+    assert_eq!(half_steps_to_secs(3), 1.5);
+    assert_eq!(next_selector_index(0, 2, 1), 1);
+    assert_eq!(next_selector_index(1, 2, 1), 0);
+    assert_eq!(next_selector_index(0, 2, -1), 1);
+    assert_eq!(
+        map_selector_key(gdk::Key::j),
+        Some(SelectorKeyAction::MoveNext)
+    );
+    assert_eq!(
+        map_selector_key(gdk::Key::Up),
+        Some(SelectorKeyAction::MovePrev)
+    );
+    assert_eq!(
+        map_selector_key(gdk::Key::Tab),
+        Some(SelectorKeyAction::Confirm)
+    );
+    assert_eq!(
+        map_selector_key(gdk::Key::Escape),
+        Some(SelectorKeyAction::Cancel)
+    );
+}
+
+#[test]
+fn test_empty_pane_eof_ctrl_d_key() {
+    use crate::ui::empty_pane::is_empty_pane_eof_close_key;
+
+    assert!(is_empty_pane_eof_close_key(
+        gdk::Key::d,
+        gdk::ModifierType::CONTROL_MASK
+    ));
+    assert!(is_empty_pane_eof_close_key(
+        gdk::Key::D,
+        gdk::ModifierType::CONTROL_MASK
+    ));
+    assert!(!is_empty_pane_eof_close_key(
+        gdk::Key::d,
+        gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK
+    ));
+    assert!(!is_empty_pane_eof_close_key(
+        gdk::Key::d,
+        gdk::ModifierType::empty()
+    ));
+}

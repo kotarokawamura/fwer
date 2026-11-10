@@ -139,16 +139,34 @@ impl Workspace {
         *ws_holder.borrow_mut() = Some(Rc::clone(&ws));
 
         // Capture key events at workspace level when the pane selector modal is open
+        // or when an Empty pane is the active focused pane.
         {
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
             let ws_weak = Rc::downgrade(&ws);
-            key_ctrl.connect_key_pressed(move |_ctrl, key, _code, _mods| {
+            key_ctrl.connect_key_pressed(move |_ctrl, key, _code, mods| {
                 let Some(ws) = ws_weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
                 if ws.pane_selector.is_open() && ws.pane_selector.handle_key_press(key) {
                     return glib::Propagation::Stop;
+                }
+                if !ws.modal_blocked.get()
+                    && !matches!(ws.mode.get(), InteractionMode::EditingTitle(_))
+                {
+                    let active_id_opt = ws.tree.borrow().active_pane;
+                    let active_empty = active_id_opt.and_then(|active_id| {
+                        ws.pane_widgets
+                            .borrow()
+                            .get(&active_id)
+                            .filter(|p| p.kind() == PaneKind::Empty)
+                            .cloned()
+                    });
+                    if let Some(empty_pane) = active_empty
+                        && empty_pane.handle_empty_pane_key_press(key, mods)
+                    {
+                        return glib::Propagation::Stop;
+                    }
                 }
                 glib::Propagation::Proceed
             });
@@ -272,6 +290,10 @@ impl Workspace {
              }}
              .fwer-pane-selector-title {{
                 color: #f4f4f5;
+                font-size: {ui_font_pt}pt;
+             }}
+             .fwer-pane-selector-timer {{
+                color: #38bdf8;
                 font-size: {ui_font_pt}pt;
              }}
              .fwer-pane-selector-hint {{
@@ -1044,15 +1066,25 @@ impl Workspace {
                 self.close_pane_by_id(tile_id);
             }
             PaneShortcutAction::FocusNextPane => {
-                if self.tree.borrow_mut().focus_next_pane().is_some() {
-                    self.rebuild_gtk_tree();
+                let visible_before = self.tree.borrow().visible_pane_ids();
+                let next_opt = self.tree.borrow_mut().focus_next_pane();
+                if next_opt.is_some() {
+                    let visible_after = self.tree.borrow().visible_pane_ids();
+                    if visible_before != visible_after {
+                        self.rebuild_gtk_tree();
+                    }
                     self.refresh_all_panes();
                     self.focus_active_pane();
                 }
             }
             PaneShortcutAction::FocusPrevPane => {
-                if self.tree.borrow_mut().focus_prev_pane().is_some() {
-                    self.rebuild_gtk_tree();
+                let visible_before = self.tree.borrow().visible_pane_ids();
+                let prev_opt = self.tree.borrow_mut().focus_prev_pane();
+                if prev_opt.is_some() {
+                    let visible_after = self.tree.borrow().visible_pane_ids();
+                    if visible_before != visible_after {
+                        self.rebuild_gtk_tree();
+                    }
                     self.refresh_all_panes();
                     self.focus_active_pane();
                 }
@@ -1143,9 +1175,17 @@ impl Workspace {
         if !self.pane_widgets.borrow().contains_key(&target_id) {
             return;
         }
-        if self.settings.borrow().select_pane_type_on_split {
+        let (select_on_split, timeout_secs) = {
+            let s = self.settings.borrow();
+            (
+                s.select_pane_type_on_split,
+                s.effective_select_pane_type_timeout_secs(),
+            )
+        };
+        if select_on_split {
             self.commit_any_active_title_edit();
-            self.pane_selector.open(target_id, horizontal);
+            self.pane_selector
+                .open_with_timeout(target_id, horizontal, timeout_secs);
             self.refresh_all_panes();
             return;
         }

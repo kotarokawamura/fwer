@@ -343,3 +343,18 @@ msgstr "スクロールバー表示切替"
 
 msgid "Read-Only"
 msgstr "読み取り専用 (Read-Only)"
+
+msgid "Select Panel Type on Split"
+msgstr "分割時にパネル種別を選択する"
+
+msgid "Select Panel Type Timer (s)"
+msgstr "パネル選択タイマー (秒 / 0=OFF)"
+
+msgid "Select Panel Type"
+msgstr "パネル種別を選択"
+
+msgid "Shell Panel"
+msgstr "シェルパネル (Shell Panel)"
+
+msgid "Empty Panel"
+msgstr "空パネル (Empty Panel)"

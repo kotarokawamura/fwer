@@ -317,3 +317,18 @@ msgstr ""
 
 msgid "Read-Only"
 msgstr ""
+
+msgid "Select Panel Type on Split"
+msgstr ""
+
+msgid "Select Panel Type Timer (s)"
+msgstr ""
+
+msgid "Select Panel Type"
+msgstr ""
+
+msgid "Shell Panel"
+msgstr ""
+
+msgid "Empty Panel"
+msgstr ""
