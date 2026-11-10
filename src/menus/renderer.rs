@@ -86,7 +86,10 @@ fn populate_menu_entries(
                 lbl.set_hexpand(true);
                 row.append(&lbl);
 
-                if let Some(sc) = shortcut.as_ref().filter(|s| !s.trim().is_empty()) {
+                if let Some(sc) = shortcut
+                    .as_ref()
+                    .filter(|s| !crate::config::theme::is_shortcut_disabled(s))
+                {
                     let sc_lbl = gtk4::Label::new(Some(sc));
                     sc_lbl.add_css_class("fwer-menu-shortcut");
                     sc_lbl.set_halign(gtk4::Align::End);

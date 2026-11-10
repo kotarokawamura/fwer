@@ -5,8 +5,17 @@
 // as published by the Free Software Foundation; version 2
 // of the License.
 
+use crate::config::theme::is_shortcut_disabled;
 use crate::i18n::tr;
 use crate::menus::types::{MenuAction, MenuContext, MenuEntry};
+
+fn shortcut_opt(spec: &str) -> Option<String> {
+    if is_shortcut_disabled(spec) {
+        None
+    } else {
+        Some(spec.to_string())
+    }
+}
 
 pub fn checkbox_icon(checked: bool) -> String {
     if checked {
@@ -22,14 +31,14 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "📋".to_string(),
             label: tr("Copy"),
-            shortcut: Some(sc.copy.clone()),
+            shortcut: shortcut_opt(&sc.copy),
             action: MenuAction::Copy,
             enabled: true,
         },
         MenuEntry::Item {
             icon: "📥".to_string(),
             label: tr("Paste"),
-            shortcut: Some(sc.paste.clone()),
+            shortcut: shortcut_opt(&sc.paste),
             action: MenuAction::Paste,
             enabled: true,
         },
@@ -41,14 +50,14 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
                 MenuEntry::Item {
                     icon: "↔".to_string(),
                     label: tr("Split Horizontally"),
-                    shortcut: Some(sc.split_horizontal.clone()),
+                    shortcut: shortcut_opt(&sc.split_horizontal),
                     action: MenuAction::SplitHorizontal,
                     enabled: true,
                 },
                 MenuEntry::Item {
                     icon: "↕".to_string(),
                     label: tr("Split Vertically"),
-                    shortcut: Some(sc.split_vertical.clone()),
+                    shortcut: shortcut_opt(&sc.split_vertical),
                     action: MenuAction::SplitVertical,
                     enabled: true,
                 },
@@ -57,7 +66,7 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "➕".to_string(),
             label: tr("New Tab"),
-            shortcut: Some(sc.new_tab.clone()),
+            shortcut: shortcut_opt(&sc.new_tab),
             action: MenuAction::NewTab,
             enabled: true,
         },
@@ -71,7 +80,7 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: checkbox_icon(ctx.show_scrollbar),
             label: tr("Toggle Scrollbar"),
-            shortcut: Some(sc.toggle_scrollbar.clone()),
+            shortcut: shortcut_opt(&sc.toggle_scrollbar),
             action: MenuAction::ToggleScrollbar,
             enabled: true,
         },
@@ -86,14 +95,14 @@ pub fn default_pane_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "⚙".to_string(),
             label: tr("Open Settings"),
-            shortcut: Some(sc.open_preferences.clone()),
+            shortcut: shortcut_opt(&sc.open_preferences),
             action: MenuAction::OpenSettings,
             enabled: true,
         },
         MenuEntry::Item {
             icon: "✖".to_string(),
             label: tr("Close Pane"),
-            shortcut: Some(sc.close_pane.clone()),
+            shortcut: shortcut_opt(&sc.close_pane),
             action: MenuAction::ClosePane,
             enabled: true,
         },
@@ -106,7 +115,7 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "➕".to_string(),
             label: tr("New Tab"),
-            shortcut: Some(sc.new_tab.clone()),
+            shortcut: shortcut_opt(&sc.new_tab),
             action: MenuAction::NewTab,
             enabled: true,
         },
@@ -117,14 +126,14 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
                 MenuEntry::Item {
                     icon: "↔".to_string(),
                     label: tr("Split Horizontally"),
-                    shortcut: Some(sc.split_horizontal.clone()),
+                    shortcut: shortcut_opt(&sc.split_horizontal),
                     action: MenuAction::SplitHorizontal,
                     enabled: true,
                 },
                 MenuEntry::Item {
                     icon: "↕".to_string(),
                     label: tr("Split Vertically"),
-                    shortcut: Some(sc.split_vertical.clone()),
+                    shortcut: shortcut_opt(&sc.split_vertical),
                     action: MenuAction::SplitVertical,
                     enabled: true,
                 },
@@ -154,7 +163,7 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: checkbox_icon(ctx.show_scrollbar),
             label: tr("Toggle Scrollbar"),
-            shortcut: Some(sc.toggle_scrollbar.clone()),
+            shortcut: shortcut_opt(&sc.toggle_scrollbar),
             action: MenuAction::ToggleScrollbar,
             enabled: true,
         },
@@ -168,14 +177,14 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "⛶".to_string(),
             label: tr("Toggle Fullscreen"),
-            shortcut: Some(sc.toggle_fullscreen.clone()),
+            shortcut: shortcut_opt(&sc.toggle_fullscreen),
             action: MenuAction::ToggleFullscreen,
             enabled: true,
         },
         MenuEntry::Item {
             icon: "⚙".to_string(),
             label: tr("Open Settings"),
-            shortcut: Some(sc.open_preferences.clone()),
+            shortcut: shortcut_opt(&sc.open_preferences),
             action: MenuAction::OpenSettings,
             enabled: true,
         },
@@ -183,7 +192,7 @@ pub fn default_titlebar_menu(ctx: &MenuContext) -> Vec<MenuEntry> {
         MenuEntry::Item {
             icon: "✖".to_string(),
             label: tr("Close Pane"),
-            shortcut: Some(sc.close_pane.clone()),
+            shortcut: shortcut_opt(&sc.close_pane),
             action: MenuAction::ClosePane,
             enabled: true,
         },

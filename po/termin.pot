@@ -332,3 +332,9 @@ msgstr ""
 
 msgid "Empty Panel"
 msgstr ""
+
+msgid "Disable"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""

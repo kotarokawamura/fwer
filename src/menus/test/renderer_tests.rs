@@ -82,4 +82,33 @@ fn test_default_pane_and_titlebar_menus_and_plugins() {
             if entries.len() == 2
                 && matches!(&entries[0], MenuEntry::Item { action: MenuAction::ApplyPreset(name), .. } if name == "Dev Set")
     )));
+
+    let mut disabled_shortcuts = ShortcutSettings::default();
+    disabled_shortcuts.copy = String::new();
+    disabled_shortcuts.paste = "Disabled".to_string();
+    let ctx_disabled = MenuContext {
+        target_kind: MenuTargetKind::Pane,
+        tile_id: TileId(1),
+        has_selection: false,
+        show_scrollbar: true,
+        is_read_only: false,
+        shortcuts: disabled_shortcuts,
+    };
+    let disabled_entries = mgr.build_entries(&ctx_disabled);
+    assert!(disabled_entries.iter().any(|e| matches!(
+        e,
+        MenuEntry::Item {
+            action: MenuAction::Copy,
+            shortcut: None,
+            ..
+        }
+    )));
+    assert!(disabled_entries.iter().any(|e| matches!(
+        e,
+        MenuEntry::Item {
+            action: MenuAction::Paste,
+            shortcut: None,
+            ..
+        }
+    )));
 }

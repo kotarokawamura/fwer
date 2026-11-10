@@ -358,3 +358,9 @@ msgstr "シェルパネル (Shell Panel)"
 
 msgid "Empty Panel"
 msgstr "空パネル (Empty Panel)"
+
+msgid "Disable"
+msgstr "無効"
+
+msgid "Disabled"
+msgstr "無効"

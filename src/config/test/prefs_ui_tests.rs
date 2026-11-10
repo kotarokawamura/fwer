@@ -43,6 +43,34 @@ fn test_matches_shortcut_aliases_and_plus_equals() {
 }
 
 #[test]
+fn test_disabled_shortcuts() {
+    for disabled_spec in ["", "   ", "Disabled", "disable", "None", "off", "無効"] {
+        assert!(is_shortcut_disabled(disabled_spec));
+        assert!(split_shortcut_bindings(disabled_spec).is_empty());
+        assert_eq!(parse_single_binding(disabled_spec), None);
+        assert!(!matches_shortcut(
+            disabled_spec,
+            "c",
+            true,
+            true,
+            false,
+            false
+        ));
+    }
+
+    let mut sc = ShortcutSettings::default();
+    sc.update_slot("copy", "", false);
+    assert!(is_shortcut_disabled(&sc.copy));
+    assert_eq!(sc.get_slot("copy"), "");
+
+    // Adding a shortcut when currently disabled replaces the disabled value cleanly
+    sc.update_slot("copy", "Disabled", false);
+    assert!(is_shortcut_disabled(&sc.copy));
+    sc.update_slot("copy", "Super+C", true);
+    assert_eq!(sc.get_slot("copy"), "Super+C");
+}
+
+#[test]
 fn test_broadcast_group_palette_cycles() {
     assert_eq!(broadcast_group_title_bg(1, true), RgbColor(25, 118, 210));
     assert_eq!(broadcast_group_title_bg(1, false), RgbColor(21, 75, 135));

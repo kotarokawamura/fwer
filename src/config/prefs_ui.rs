@@ -1488,6 +1488,7 @@ impl PreferencesWindow {
             row.append(&lbl);
 
             let entry = gtk4::Entry::new();
+            entry.set_placeholder_text(Some(&tr("Disabled")));
             entry.set_text(current_val);
             entry.set_hexpand(true);
             row.append(&entry);
@@ -1541,6 +1542,23 @@ impl PreferencesWindow {
                 });
             }
             row.append(&add_btn);
+
+            let disable_btn = gtk4::Button::with_label(&tr("Disable"));
+            {
+                let p_weak = Rc::downgrade(self);
+                let key_owned = slot_key.to_string();
+                disable_btn.connect_clicked(move |_| {
+                    if let Some(p) = p_weak.upgrade() {
+                        *p.recording.borrow_mut() = None;
+                        p.recording_status_label.set_visible(false);
+                        let mut st = p.workspace.settings();
+                        apply_shortcut_slot_update(&mut st.shortcuts, &key_owned, "", false);
+                        p.notify_changed(st);
+                        p.refresh_shortcut_row_ui(&key_owned);
+                    }
+                });
+            }
+            row.append(&disable_btn);
 
             let def_btn = gtk4::Button::with_label(&tr("Default"));
             {

@@ -359,3 +359,9 @@ msgstr "Shell Panel"
 
 msgid "Empty Panel"
 msgstr "Empty Panel"
+
+msgid "Disable"
+msgstr "Disable"
+
+msgid "Disabled"
+msgstr "Disabled"

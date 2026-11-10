@@ -100,9 +100,11 @@ macro_rules! define_shortcuts {
             /// Updates the field matched with the slot_key (append supported).
             pub fn update_slot(&mut self, slot_key: &str, new_val: &str, append: bool) {
                 let update = |field: &mut String| {
-                    if append && !field.trim().is_empty() {
+                    if append && !is_shortcut_disabled(field) {
                         let mut list = split_shortcut_bindings(field);
-                        if !list.iter().any(|x| x.eq_ignore_ascii_case(new_val)) {
+                        if !is_shortcut_disabled_keyword(new_val)
+                            && !list.iter().any(|x| x.eq_ignore_ascii_case(new_val))
+                        {
                             list.push(new_val.to_string());
                         }
                         *field = list.join(" / ");
@@ -943,6 +945,23 @@ fn collect_font_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Returns true if a single shortcut token represents an explicitly disabled state.
+pub fn is_shortcut_disabled_keyword(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "無効" {
+        return true;
+    }
+    matches!(
+        trimmed.to_ascii_lowercase().as_str(),
+        "disabled" | "disable" | "none" | "off"
+    )
+}
+
+/// Returns true if a shortcut specification has no active bindings (disabled).
+pub fn is_shortcut_disabled(spec: &str) -> bool {
+    split_shortcut_bindings(spec).is_empty()
+}
+
 /// Splits a shortcut setting string into individual bindings (Section 4.4).
 /// Supports `/`, `|`, and `,` delimiters while keeping `"Ctrl+,"` intact.
 pub fn split_shortcut_bindings(spec: &str) -> Vec<String> {
@@ -955,7 +974,7 @@ pub fn split_shortcut_bindings(spec: &str) -> Vec<String> {
         let c = chars[i];
         if c == '/' || c == '|' {
             let trimmed = current.trim().to_string();
-            if !trimmed.is_empty() {
+            if !is_shortcut_disabled_keyword(&trimmed) {
                 result.push(trimmed);
             }
             current.clear();
@@ -965,7 +984,7 @@ pub fn split_shortcut_bindings(spec: &str) -> Vec<String> {
                 current.push(c);
             } else {
                 let trimmed = current.trim().to_string();
-                if !trimmed.is_empty() {
+                if !is_shortcut_disabled_keyword(&trimmed) {
                     result.push(trimmed);
                 }
                 current.clear();
@@ -977,7 +996,7 @@ pub fn split_shortcut_bindings(spec: &str) -> Vec<String> {
     }
 
     let trimmed = current.trim().to_string();
-    if !trimmed.is_empty() {
+    if !is_shortcut_disabled_keyword(&trimmed) {
         result.push(trimmed);
     }
     result
@@ -994,7 +1013,7 @@ pub struct ParsedBinding {
 
 pub fn parse_single_binding(binding: &str) -> Option<ParsedBinding> {
     let s = binding.trim();
-    if s.is_empty() {
+    if is_shortcut_disabled_keyword(s) {
         return None;
     }
 
