@@ -48,9 +48,9 @@ fn test_encode_terminal_key_bytes() {
 
 #[test]
 fn test_pane_selector_half_second_steps_and_keys() {
-    use crate::ui::pane_selector::{
-        SelectorKeyAction, half_steps_to_secs, map_selector_key, next_selector_index,
-        timeout_secs_to_half_steps,
+    use crate::pane::pane_selector::{
+        half_steps_to_secs, map_selector_key, next_selector_index, timeout_secs_to_half_steps,
+        SelectorKeyAction,
     };
 
     assert_eq!(timeout_secs_to_half_steps(0.0), 0);
@@ -80,7 +80,7 @@ fn test_pane_selector_half_second_steps_and_keys() {
 
 #[test]
 fn test_empty_pane_eof_ctrl_d_key() {
-    use crate::ui::empty_pane::is_empty_pane_eof_close_key;
+    use crate::pane::empty_pane::is_empty_pane_eof_close_key;
 
     assert!(is_empty_pane_eof_close_key(
         gdk::Key::d,

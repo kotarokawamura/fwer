@@ -16,9 +16,9 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use super::types::PaneKind;
 use crate::config::theme::snap_half_second_timeout;
 use crate::i18n::tr;
-use crate::ui::pane::PaneKind;
 use crate::ui::state::TileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

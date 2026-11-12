@@ -73,7 +73,8 @@ macro_rules! define_shortcuts {
             }
         }
 
-        ///Automatically generates the PaneShortcutAction enum from items that have a specified action
+        // Automatically generates the PaneShortcutAction
+        // enum from items that have a specified action
         define_shortcuts!(@collect_enum [] $( $field $(: $action)?, )*);
 
         impl ShortcutSettings {

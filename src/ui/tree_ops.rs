@@ -5,10 +5,9 @@
 // as published by the Free Software Foundation; version 2
 // of the License.
 
-use std::collections::HashMap;
-
-use super::pane::PaneKind;
 use super::state::TileId;
+use crate::pane::PaneKind;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -258,8 +257,8 @@ impl WorkspaceTree {
 
         if self.active_pane == Some(target)
             || !self
-            .active_pane
-            .is_some_and(|a| self.panes.contains_key(&a))
+                .active_pane
+                .is_some_and(|a| self.panes.contains_key(&a))
         {
             let next_focus = target_pos
                 .map(|idx| remaining[idx.min(remaining.len() - 1)])
@@ -398,9 +397,9 @@ impl WorkspaceTree {
             .filter(|&id| {
                 id != source
                     && self
-                    .panes
-                    .get(&id)
-                    .is_some_and(|p| p.broadcast_group == grp)
+                        .panes
+                        .get(&id)
+                        .is_some_and(|p| p.broadcast_group == grp)
             })
             .collect();
         peers.dedup();
@@ -455,7 +454,7 @@ fn contains_pane(node: &TreeNode, target: TileId) -> bool {
     }
 }
 
-fn first_pane_in_node(node: &TreeNode) -> Option<TileId> {
+pub fn first_pane_in_node(node: &TreeNode) -> Option<TileId> {
     match node {
         TreeNode::Pane(id) => Some(*id),
         TreeNode::Horizontal(children) | TreeNode::Vertical(children) => {

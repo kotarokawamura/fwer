@@ -17,6 +17,7 @@
 pub mod config;
 pub mod i18n;
 pub mod menus;
+pub mod pane;
 pub mod session;
 pub mod ui;
 pub mod vte;

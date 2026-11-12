@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::config::theme::config_path;
-use crate::ui::pane::PaneKind;
+use crate::pane::PaneKind;
 use crate::ui::state::TileId;
 use crate::ui::tree_ops::{TreeNode, WorkspaceTree};
 
@@ -583,11 +583,7 @@ impl LayoutNode {
             LayoutNode::Pane { .. } => {
                 let idx = *cur_idx;
                 *cur_idx += 1;
-                if idx == target_idx {
-                    None
-                } else {
-                    Some(self)
-                }
+                if idx == target_idx { None } else { Some(self) }
             }
             LayoutNode::HorizontalSplit { children } => {
                 let mut kept: Vec<LayoutNode> = children

@@ -27,7 +27,7 @@ use crate::config::theme::{
 use crate::i18n::{
     active_entry_count, active_locale, discover_po_files, load_catalog_for_language, tr,
 };
-use crate::ui::pane::PaneKind;
+use crate::pane::PaneKind;
 use crate::ui::workspace::Workspace;
 use crate::vte::RgbColor;
 
@@ -458,7 +458,12 @@ impl PreferencesWindow {
         }
     }
 
-    fn rebuild_row_chips(self: &Rc<Self>, chips_box: &gtk4::Box, slot_key: &str, current_val: &str) {
+    fn rebuild_row_chips(
+        self: &Rc<Self>,
+        chips_box: &gtk4::Box,
+        slot_key: &str,
+        current_val: &str,
+    ) {
         while let Some(child) = chips_box.first_child() {
             chips_box.remove(&child);
         }
@@ -971,10 +976,7 @@ impl PreferencesWindow {
                     if !kw_lower.is_empty() && !p_str.to_ascii_lowercase().contains(&kw_lower) {
                         continue;
                     }
-                    let label = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&p_str);
+                    let label = path.file_name().and_then(|n| n.to_str()).unwrap_or(&p_str);
                     #[allow(deprecated)]
                     combo_clone.append(Some(&p_str), label);
                     if p_str == current_path {
@@ -1261,8 +1263,11 @@ impl PreferencesWindow {
                     .upgrade()
                     .map(|p| p.workspace.settings().font_path)
                     .unwrap_or_default();
-                current_font_lbl_c
-                    .set_text(&format!("{}: {}", tr("Current Font"), current_selected));
+                current_font_lbl_c.set_text(&format!(
+                    "{}: {}",
+                    tr("Current Font"),
+                    current_selected
+                ));
 
                 let all_fonts = fonts_rc.borrow();
                 let total_count = all_fonts.len();
@@ -2249,7 +2254,8 @@ impl PreferencesWindow {
                     startup_chk.connect_toggled(move |chk| {
                         if let Some(p) = p_weak.upgrade() {
                             let mut st = PresetStore::load();
-                            let target_name = st.presets.get(selected_idx).map(|pr| pr.name.clone());
+                            let target_name =
+                                st.presets.get(selected_idx).map(|pr| pr.name.clone());
                             if chk.is_active() {
                                 st.set_startup_preset(target_name.as_deref());
                             } else {
@@ -2562,7 +2568,7 @@ impl PreferencesWindow {
                                     pane_cfg.pane_kind = new_kind;
                                     if new_kind == PaneKind::Empty
                                         && (pane_cfg.title == "/bin/bash"
-                                        || pane_cfg.title == "Shell")
+                                            || pane_cfg.title == "Shell")
                                     {
                                         pane_cfg.title = new_kind.default_title();
                                     }
@@ -2664,8 +2670,11 @@ impl PreferencesWindow {
                         if let Some(pr) = st.presets.get_mut(selected_idx) {
                             let txt = e.text().trim().to_string();
                             pr.root.update_pane_at(pane_idx, |c| {
-                                c.command =
-                                    if txt.is_empty() { None } else { Some(txt.clone()) };
+                                c.command = if txt.is_empty() {
+                                    None
+                                } else {
+                                    Some(txt.clone())
+                                };
                             });
                             let _ = st.save();
                         }
@@ -2762,8 +2771,7 @@ impl PreferencesWindow {
                             let mut st = PresetStore::load();
                             if let Some(pr) = st.presets.get_mut(selected_idx) {
                                 pr.root.update_pane_at(pane_idx, |c| {
-                                    c.font_size =
-                                        Some(((sc.value() as f32) * 2.0).round() / 2.0);
+                                    c.font_size = Some(((sc.value() as f32) * 2.0).round() / 2.0);
                                 });
                                 let _ = st.save();
                             }
@@ -2791,7 +2799,7 @@ impl PreferencesWindow {
 
                 let p_sb_def_btn = gtk4::Button::with_label(&tr("Default"));
                 p_sb_def_btn.set_sensitive(cfg.show_scrollbar.is_some());
-                
+
                 let sb_updating = Rc::new(Cell::new(false));
                 {
                     let upd = Rc::clone(&sb_updating);

@@ -11,6 +11,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use gtk4::glib;
+use gtk4::graphene;
 use gtk4::prelude::*;
 
 use crate::config::layout_preset::{
@@ -20,14 +21,13 @@ use crate::config::theme::{ThemeSettings, format_rgb_hex};
 use crate::menus::MenuManager;
 use crate::menus::renderer::show_context_menu_popover;
 use crate::menus::types::{MenuAction, MenuContext, MenuTargetKind};
-use crate::ui::empty_pane::{
-    EMPTY_PANE_FRAME_INSET, compute_pass_through_hole_rect, set_x11_surface_keep_above,
+use crate::pane::{
+    EMPTY_PANE_FRAME_INSET, PaneEvent, PaneKind, PaneSelectorWidget, PaneShortcutAction,
+    PaneWidget, SpecialModeKey, compute_pass_through_hole_rect, set_x11_surface_keep_above,
 };
-use crate::ui::pane::{PaneEvent, PaneKind, PaneShortcutAction, PaneWidget, SpecialModeKey};
-use crate::ui::pane_selector::PaneSelectorWidget;
 use crate::ui::state::{InteractionMode, PaneContext, TileId};
 use crate::ui::titlebar::{TitlebarEvent, next_mode_on_grip_click};
-use crate::ui::tree_ops::{Direction, TreeNode, WorkspaceTree};
+use crate::ui::tree_ops::{Direction, TreeNode, WorkspaceTree, first_pane_in_node};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceWindowAction {
@@ -139,7 +139,7 @@ impl Workspace {
         *ws_holder.borrow_mut() = Some(Rc::clone(&ws));
 
         // Capture key events at workspace level when the pane selector modal is open
-        // or when an Empty pane is the active focused pane.
+        // or when the active pane intercepts workspace-level keys (e.g. Empty pane).
         {
             let key_ctrl = gtk4::EventControllerKey::new();
             key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -154,16 +154,12 @@ impl Workspace {
                 if !ws.modal_blocked.get()
                     && !matches!(ws.mode.get(), InteractionMode::EditingTitle(_))
                 {
-                    let active_id_opt = ws.tree.borrow().active_pane;
-                    let active_empty = active_id_opt.and_then(|active_id| {
-                        ws.pane_widgets
-                            .borrow()
-                            .get(&active_id)
-                            .filter(|p| p.kind() == PaneKind::Empty)
-                            .cloned()
-                    });
-                    if let Some(empty_pane) = active_empty
-                        && empty_pane.handle_empty_pane_key_press(key, mods)
+                    let active_pane =
+                        ws.tree.borrow().active_pane.and_then(|active_id| {
+                            ws.pane_widgets.borrow().get(&active_id).cloned()
+                        });
+                    if let Some(pane) = active_pane
+                        && pane.intercept_workspace_key_press(key, mods)
                     {
                         return glib::Propagation::Stop;
                     }
@@ -252,6 +248,7 @@ impl Workspace {
         let border_w = s.effective_border_width().round() as i32;
         let ui_font_pt = s.effective_ui_font_size();
         let font_family = s.effective_font_family();
+        let special_modes_css = InteractionMode::SPECIAL_MODES_CSS;
 
         let css = format!(
             "window.fwer-main-window {{
@@ -311,16 +308,6 @@ impl Workspace {
                 border: 1px solid #38bdf8;
                 border-radius: 6px;
                 padding: 8px 10px;
-             }}
-             .fwer-workspace paned > separator,
-             .fwer-workspace paned > separator.wide {{
-                background-image: none;
-                background-color: {sep_hex};
-                border: none;
-                box-shadow: none;
-                outline: none;
-                min-width: {sep_w}px;
-                min-height: {sep_w}px;
              }}
              .fwer-workspace paned.horizontal > :first-child.fwer-pane,
              .fwer-workspace paned.horizontal > :first-child .fwer-pane {{
@@ -387,18 +374,7 @@ impl Workspace {
                 border-radius: 6px;
                 padding: 12px;
              }}
-             .fwer-pane-moving-source {{
-                border: 2px solid rgb(250, 204, 21);
-             }}
-             .fwer-pane-broadcast-source {{
-                border: 2px solid rgb(56, 189, 248);
-             }}
-             .fwer-pane-resizing-source {{
-                border: 2px solid rgb(74, 222, 128);
-             }}
-             .fwer-pane-opacity-source {{
-                border: 2px solid rgb(236, 72, 153);
-             }}
+             {special_modes_css}
              .fwer-pane-target-hover {{
                 border: 2px solid rgb(80, 180, 255);
              }}
@@ -489,7 +465,7 @@ impl Workspace {
 
         let has_visible_empty = visible_ids
             .iter()
-            .any(|id| widgets.get(id).is_some_and(|w| w.kind() == PaneKind::Empty));
+            .any(|id| widgets.get(id).is_some_and(|w| w.requires_keep_above()));
 
         if self.last_keep_above.get() != has_visible_empty {
             self.last_keep_above.set(has_visible_empty);
@@ -511,14 +487,14 @@ impl Workspace {
                     && hole_widget.is_mapped()
                     && let Some(bounds) = hole_widget.compute_bounds(&native)
                     && let Some((hx, hy, hw, hh)) = compute_pass_through_hole_rect(
-                    bounds.x(),
-                    bounds.y(),
-                    bounds.width(),
-                    bounds.height(),
-                    surf_w,
-                    surf_h,
-                    EMPTY_PANE_FRAME_INSET,
-                )
+                        bounds.x(),
+                        bounds.y(),
+                        bounds.width(),
+                        bounds.height(),
+                        surf_w,
+                        surf_h,
+                        EMPTY_PANE_FRAME_INSET,
+                    )
                 {
                     let hole_rect = gtk4::cairo::RectangleInt::new(hx, hy, hw, hh);
                     let _ = region.subtract_rectangle(&hole_rect);
@@ -526,7 +502,7 @@ impl Workspace {
             }
         }
 
-        surface.set_input_region(Some(&region));
+        surface.set_input_region(Some(& region));
     }
 
     fn spawn_and_register_pane_with_kind(
@@ -588,9 +564,7 @@ impl Workspace {
                             self.mode.set(InteractionMode::Normal);
                             self.kb_target_pane.set(None);
                         } else {
-                            self.tree
-                                .borrow_mut()
-                                .link_broadcast_panes(src_id, tile_id);
+                            self.tree.borrow_mut().link_broadcast_panes(src_id, tile_id);
                             if !keep_selecting {
                                 self.mode.set(InteractionMode::Normal);
                                 self.kb_target_pane.set(None);
@@ -1230,10 +1204,10 @@ impl Workspace {
             .get(&target_id)
             .and_then(|p| p.current_working_dir());
         let title = default_shell_title();
-        let new_id_opt = self
-            .tree
-            .borrow_mut()
-            .add_tab_with_kind(target_id, &title, None, PaneKind::Shell);
+        let new_id_opt =
+            self.tree
+                .borrow_mut()
+                .add_tab_with_kind(target_id, &title, None, PaneKind::Shell);
 
         if let Some(new_id) = new_id_opt {
             self.spawn_and_register_pane_with_kind(
@@ -1273,10 +1247,10 @@ impl Workspace {
         self.focus_active_pane();
     }
 
-    pub fn save_current_layout(&self) -> Result<std::path::PathBuf, String> {
+    fn capture_layout_node(&self) -> Option<LayoutNode> {
         let tree = self.tree.borrow();
         let panes = self.pane_widgets.borrow();
-        let node = LayoutNode::from_tree_with_configs(&tree, |id| {
+        LayoutNode::from_tree_with_configs(&tree, |id| {
             let meta = tree.panes.get(&id);
             let widget = panes.get(&id);
             let pane_kind = widget
@@ -1307,12 +1281,9 @@ impl Workspace {
                 show_scrollbar,
             }
         })
-            .ok_or_else(|| "Empty workspace tree".to_string())?;
-        node.save_to_disk()
     }
 
-    pub fn load_saved_layout(self: &Rc<Self>) -> Result<(), String> {
-        let node = LayoutNode::load_from_disk()?;
+    fn restore_layout_node(self: &Rc<Self>, node: &LayoutNode) {
         let next_id = self.tree.borrow().next_id_counter();
         let (new_tree, pane_configs) = node.build_tree_with_configs_starting_at(next_id);
 
@@ -1351,65 +1322,43 @@ impl Workspace {
 
             if cfg.pane_kind == PaneKind::Shell
                 && let Some(cmd) = cfg
-                .command
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+                    .command
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
             {
                 pane.set_startup_command(Some(cmd.clone()));
                 let pane_for_cmd = pane.clone();
-                glib::timeout_add_local_once(
-                    std::time::Duration::from_millis(250),
-                    move || {
-                        if pane_for_cmd.is_alive() {
-                            let line = format!("{}\n", cmd);
-                            pane_for_cmd.write_input(line.as_bytes());
-                        }
-                    },
-                );
+                glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+                    if pane_for_cmd.is_alive() {
+                        let line = format!("{}\n", cmd);
+                        pane_for_cmd.write_input(line.as_bytes());
+                    }
+                });
             }
         }
 
         self.rebuild_gtk_tree();
         self.refresh_all_panes();
         self.focus_active_pane();
+    }
+
+    pub fn save_current_layout(&self) -> Result<std::path::PathBuf, String> {
+        let node = self
+            .capture_layout_node()
+            .ok_or_else(|| "Empty workspace tree".to_string())?;
+        node.save_to_disk()
+    }
+
+    pub fn load_saved_layout(self: &Rc<Self>) -> Result<(), String> {
+        let node = LayoutNode::load_from_disk()?;
+        self.restore_layout_node(&node);
         Ok(())
     }
 
     pub fn capture_current_preset(&self, name: &str) -> WorkspacePreset {
-        let tree = self.tree.borrow();
-        let panes = self.pane_widgets.borrow();
-        let root = LayoutNode::from_tree_with_configs(&tree, |id| {
-            let meta = tree.panes.get(&id);
-            let widget = panes.get(&id);
-            let pane_kind = widget
-                .map(|w| w.kind())
-                .or_else(|| meta.map(|m| m.kind))
-                .unwrap_or(PaneKind::Shell);
-            let title = meta
-                .map(|m| m.title.clone())
-                .unwrap_or_else(|| pane_kind.default_title());
-            let command = widget
-                .and_then(|w| w.startup_command())
-                .or_else(|| meta.and_then(|m| m.command.clone()))
-                .filter(|s| !s.trim().is_empty());
-            let working_dir = widget
-                .and_then(|w| w.current_working_dir())
-                .map(|p| p.to_string_lossy().to_string())
-                .filter(|s| !s.trim().is_empty());
-            let opacity = widget.and_then(|w| w.custom_opacity());
-            let font_size = widget.and_then(|w| w.custom_font_size());
-            let show_scrollbar = widget.and_then(|w| w.custom_show_scrollbar());
-            PanePresetConfig {
-                title,
-                pane_kind,
-                command,
-                working_dir,
-                opacity,
-                font_size,
-                show_scrollbar,
-            }
-        })
+        let root = self
+            .capture_layout_node()
             .unwrap_or_else(|| LayoutNode::Pane {
                 title: "Shell".to_string(),
                 pane_kind: PaneKind::Shell,
@@ -1445,65 +1394,7 @@ impl Workspace {
             }
         }
         self.update_global_css();
-
-        let next_id = self.tree.borrow().next_id_counter();
-        let (new_tree, pane_configs) = preset.root.build_tree_with_configs_starting_at(next_id);
-
-        for pane in self.pane_widgets.borrow().values() {
-            pane.detach_callbacks();
-            if let Some(parent) = pane.root().parent()
-                && let Ok(parent_box) = parent.downcast::<gtk4::Box>()
-            {
-                parent_box.remove(pane.root());
-            }
-        }
-        self.pane_widgets.borrow_mut().clear();
-
-        let ordered_ids = new_tree.ordered_pane_ids();
-        *self.tree.borrow_mut() = new_tree;
-        self.mode.set(InteractionMode::Normal);
-        self.reset_opacity_mode_state();
-
-        for id in ordered_ids {
-            let cfg = pane_configs.get(&id).cloned().unwrap_or_default();
-            let wd_str = cfg.working_dir.as_deref().filter(|s| !s.trim().is_empty());
-            let wd_path = wd_str.and_then(expand_tilde_path);
-
-            let pane = self.spawn_and_register_pane_with_kind(
-                cfg.pane_kind,
-                id,
-                &cfg.title,
-                wd_path.as_deref(),
-                None,
-            );
-            pane.set_custom_opacity(cfg.opacity);
-            pane.set_custom_font_size(cfg.font_size);
-            pane.set_custom_show_scrollbar(cfg.show_scrollbar);
-
-            if cfg.pane_kind == PaneKind::Shell
-                && let Some(cmd) = cfg
-                .command
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-            {
-                pane.set_startup_command(Some(cmd.clone()));
-                let pane_for_cmd = pane.clone();
-                glib::timeout_add_local_once(
-                    std::time::Duration::from_millis(250),
-                    move || {
-                        if pane_for_cmd.is_alive() {
-                            let line = format!("{}\n", cmd);
-                            pane_for_cmd.write_input(line.as_bytes());
-                        }
-                    },
-                );
-            }
-        }
-
-        self.rebuild_gtk_tree();
-        self.refresh_all_panes();
-        self.focus_active_pane();
+        self.restore_layout_node(&preset.root);
     }
 
     fn open_context_menu_for(
@@ -1544,10 +1435,7 @@ impl Workspace {
         };
 
         let (root_x, root_y) = anchor_widget
-            .compute_point(
-                &self.root_box,
-                &gtk4::graphene::Point::new(x as f32, y as f32),
-            )
+            .compute_point(&self.root_box, &graphene::Point::new(x as f32, y as f32))
             .map(|pt| (pt.x() as f64, pt.y() as f64))
             .unwrap_or((x, y));
 
@@ -1734,10 +1622,10 @@ impl Workspace {
         let is_horizontal = orientation == gtk4::Orientation::Horizontal;
         let anchor_pane_id = first_pane_in_node(&children[0]);
         let default_ratio = 1.0 / (children.len() as f64);
-        let initial_ratio = self
-            .tree
-            .borrow()
-            .split_ratio(is_horizontal, anchor_pane_id, default_ratio);
+        let initial_ratio =
+            self.tree
+                .borrow()
+                .split_ratio(is_horizontal, anchor_pane_id, default_ratio);
 
         let ratio = Rc::new(Cell::new(initial_ratio));
         let last_max = Rc::new(Cell::new(0i32));
@@ -1778,9 +1666,11 @@ impl Workspace {
                         let new_ratio = (p.position() as f64 / max_pos as f64).clamp(0.05, 0.95);
                         ratio_c.set(new_ratio);
                         if let Some(ws) = ws_weak.upgrade() {
-                            ws.tree
-                                .borrow_mut()
-                                .set_split_ratio(is_horizontal, anchor_pane_id, new_ratio);
+                            ws.tree.borrow_mut().set_split_ratio(
+                                is_horizontal,
+                                anchor_pane_id,
+                                new_ratio,
+                            );
                             ws.schedule_pass_through_sync();
                         }
                     }
@@ -1852,22 +1742,6 @@ impl Workspace {
         {
             pane.grab_terminal_focus();
         }
-    }
-}
-
-fn first_pane_in_node(node: &TreeNode) -> Option<TileId> {
-    match node {
-        TreeNode::Pane(id) => Some(*id),
-        TreeNode::Horizontal(children) | TreeNode::Vertical(children) => {
-            children.first().and_then(first_pane_in_node)
-        }
-        TreeNode::Tabs {
-            children,
-            active_idx,
-        } => children
-            .get(*active_idx)
-            .or_else(|| children.first())
-            .and_then(first_pane_in_node),
     }
 }
 
