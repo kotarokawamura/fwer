@@ -17,7 +17,7 @@ use crate::config::theme::{ThemeSettings, format_rgb_hex, parse_color};
 use crate::i18n::tr;
 use crate::vte::RgbColor;
 
-/// ComboBox 上でタッチパッドスワイプやマウスホイールを回した際に選択項目が勝手に変わるのを防ぎます。
+/// Prevents the selection from changing automatically when you swipe the touchpad or turn the mouse wheel on the ComboBox.
 pub fn disable_combo_scroll(widget: &impl IsA<gtk4::Widget>) {
     let scroll_ctrl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
     scroll_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -35,7 +35,7 @@ pub fn color_status_text(raw: &str) -> String {
     }
 }
 
-/// 固定幅ラベル付きの水平 Box 行を生成するヘルパー
+/// Helper to generate horizontal Box rows with fixed width labels
 pub fn build_labeled_row(label_text: &str, width_chars: i32) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let lbl = gtk4::Label::new(Some(label_text));
@@ -45,7 +45,7 @@ pub fn build_labeled_row(label_text: &str, width_chars: i32) -> gtk4::Box {
     row
 }
 
-/// Presets タブの Window / Panel 設定で使われる「CheckButton + Scale (`Option<f32>`)」の共通行ビルダー
+/// Common row builder for "CheckButton + Scale (`Option<f32>`)" used in Window / Panel settings in Presets tab
 #[allow(clippy::too_many_arguments)]
 pub fn build_optional_scale_row(
     label_text: &str,

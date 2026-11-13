@@ -45,7 +45,7 @@ msgstr ""
 msgid "Toggle Fullscreen"
 msgstr ""
 
-msgid "Termin Preferences"
+msgid "Preferences"
 msgstr ""
 
 msgid "Titlebar & Frame"

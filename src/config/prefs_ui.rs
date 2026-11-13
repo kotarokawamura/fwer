@@ -79,7 +79,7 @@ impl PreferencesWindow {
         on_settings_applied: impl Fn(&ThemeSettings) + 'static,
     ) -> Rc<Self> {
         let window = gtk4::Window::builder()
-            .title(tr("Termin Preferences"))
+            .title(tr("Preferences"))
             .transient_for(parent)
             .default_width(920)
             .default_height(560)
@@ -143,7 +143,7 @@ impl PreferencesWindow {
     }
 
     pub fn present(self: &Rc<Self>) {
-        self.window.set_title(Some(&tr("Termin Preferences")));
+        self.window.set_title(Some(&tr("Preferences")));
         if self.stack.first_child().is_none() {
             self.rebuild_tabs();
         } else {
@@ -1689,7 +1689,7 @@ impl PreferencesWindow {
                         st.language = id.to_string();
                         load_catalog_for_language(&st.language, &st.custom_po_path);
                         p.notify_changed(st);
-                        p.window.set_title(Some(&tr("Termin Preferences")));
+                        p.window.set_title(Some(&tr("Preferences")));
                         p.rebuild_tabs();
                     }
                 }
@@ -1704,7 +1704,7 @@ impl PreferencesWindow {
                     st.custom_po_path = ce.text().to_string();
                     load_catalog_for_language(&st.language, &st.custom_po_path);
                     p.notify_changed(st);
-                    p.window.set_title(Some(&tr("Termin Preferences")));
+                    p.window.set_title(Some(&tr("Preferences")));
                     p.rebuild_tabs();
                 }
             });

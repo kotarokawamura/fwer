@@ -46,8 +46,8 @@ msgstr "Load Saved Layout"
 msgid "Toggle Fullscreen"
 msgstr "Toggle Fullscreen"
 
-msgid "Termin Preferences"
-msgstr "Termin Preferences"
+msgid "Preferences"
+msgstr "Preferences"
 
 msgid "Titlebar & Frame"
 msgstr "Titlebar & Frame"

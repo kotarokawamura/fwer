@@ -50,6 +50,7 @@ pub struct Workspace {
     modal_blocked: Cell<bool>,
     window_focused: Cell<bool>,
     settings: RefCell<ThemeSettings>,
+    frame_status_color: RefCell<Option<String>>,
     pub menu_manager: RefCell<MenuManager>,
     css_provider: gtk4::CssProvider,
     last_global_css: RefCell<String>,
@@ -70,7 +71,6 @@ impl Workspace {
         root_box.set_hexpand(true);
         root_box.set_vexpand(true);
         root_box.add_css_class("fwer-workspace");
-        root_box.add_css_class("fwer-window-frame");
 
         let workspace_overlay = gtk4::Overlay::new();
         workspace_overlay.set_hexpand(true);
@@ -127,6 +127,7 @@ impl Workspace {
             modal_blocked: Cell::new(false),
             window_focused: Cell::new(true),
             settings: RefCell::new(initial_settings),
+            frame_status_color: RefCell::new(None),
             menu_manager: RefCell::new(MenuManager::new()),
             css_provider,
             last_global_css: RefCell::new(String::new()),
@@ -235,6 +236,14 @@ impl Workspace {
         self.refresh_all_panes();
     }
 
+    pub fn set_frame_status_color(&self, color_css: Option<&str>) {
+        let next = color_css.map(|s| s.to_string());
+        if *self.frame_status_color.borrow() != next {
+            *self.frame_status_color.borrow_mut() = next;
+            self.update_global_css();
+        }
+    }
+
     pub fn settings(&self) -> ThemeSettings {
         self.settings.borrow().clone()
     }
@@ -246,6 +255,29 @@ impl Workspace {
         let sep_w = s.effective_separator_width().round() as i32;
         let frame_border = format_rgb_hex(s.effective_frame_border_rgb());
         let border_w = s.effective_border_width().round() as i32;
+
+        let status_color_opt = self.frame_status_color.borrow().clone();
+
+        // 通常時(None)は単一の border で1本の線として描画し、
+        // 将来 set_frame_status_color(Some(...)) が呼ばれた時だけ真ん中の色を変える
+        let (window_frame_css, workspace_border_css) = match status_color_opt {
+            Some(core_color) if border_w >= 3 => {
+                let core_w = border_w - 2;
+                (
+                    format!(
+                        "border: {core_w}px solid {core_color}; \
+                         outline: 1px solid {frame_border}; \
+                         outline-offset: -{border_w}px;"
+                    ),
+                    format!("border: 1px solid {frame_border};"),
+                )
+            }
+            _ => (
+                format!("border: {border_w}px solid {frame_border};"),
+                "border: none;".to_string(),
+            ),
+        };
+
         let ui_font_pt = s.effective_ui_font_size();
         let font_family = s.effective_font_family();
         let special_modes_css = InteractionMode::SPECIAL_MODES_CSS;
@@ -259,7 +291,15 @@ impl Workspace {
              }}
              .fwer-window-frame {{
                 background-color: transparent;
-                border: {border_w}px solid {frame_border};
+                {window_frame_css}
+                box-shadow: none;
+                padding: 0px;
+                margin: 0px;
+             }}
+             .fwer-workspace {{
+                background-color: transparent;
+                {workspace_border_css}
+                box-shadow: none;
                 padding: 0px;
                 margin: 0px;
              }}
@@ -502,7 +542,7 @@ impl Workspace {
             }
         }
 
-        surface.set_input_region(Some(& region));
+        surface.set_input_region(Some(&region));
     }
 
     fn spawn_and_register_pane_with_kind(

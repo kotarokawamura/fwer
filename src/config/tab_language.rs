@@ -67,7 +67,7 @@ impl PreferencesWindow {
                     st.language = id.to_string();
                     load_catalog_for_language(&st.language, &st.custom_po_path);
                     p.notify_changed(st);
-                    p.window.set_title(Some(&tr("Termin Preferences")));
+                    p.window.set_title(Some(&tr("Preferences")));
                     p.rebuild_tabs();
                 }
             });
@@ -81,7 +81,7 @@ impl PreferencesWindow {
                     st.custom_po_path = ce.text().to_string();
                     load_catalog_for_language(&st.language, &st.custom_po_path);
                     p.notify_changed(st);
-                    p.window.set_title(Some(&tr("Termin Preferences")));
+                    p.window.set_title(Some(&tr("Preferences")));
                     p.rebuild_tabs();
                 }
             });

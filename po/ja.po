@@ -46,7 +46,7 @@ msgstr "保存済みレイアウトを読込"
 msgid "Toggle Fullscreen"
 msgstr "最大化 / フルスクリーン切替"
 
-msgid "Termin Preferences"
+msgid "Preferences"
 msgstr "Termin 環境設定"
 
 msgid "Titlebar & Frame"

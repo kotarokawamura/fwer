@@ -228,15 +228,18 @@ impl FwerApp {
     }
 
     pub fn update_frame_margins(&self, settings: &ThemeSettings) {
-        let bw = if self.window.is_maximized() {
-            0
-        } else {
-            settings.effective_border_width().round() as i32
-        };
-        self.workspace.root_box.set_margin_top(bw);
-        self.workspace.root_box.set_margin_bottom(bw);
-        self.workspace.root_box.set_margin_start(bw);
-        self.workspace.root_box.set_margin_end(bw);
+        // If you add a margin, the background will show through, creating a transparent gap, so always set it to 0
+        self.workspace.root_box.set_margin_top(0);
+        self.workspace.root_box.set_margin_bottom(0);
+        self.workspace.root_box.set_margin_start(0);
+        self.workspace.root_box.set_margin_end(0);
+
+        if self.window.is_maximized() {
+            self.frame_box.remove_css_class("fwer-window-frame");
+        } else if !self.frame_box.has_css_class("fwer-window-frame") {
+            self.frame_box.add_css_class("fwer-window-frame");
+        }
+
         self.scheduler
             .borrow_mut()
             .set_target_fps(settings.effective_target_fps());

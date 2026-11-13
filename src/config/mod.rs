@@ -91,7 +91,7 @@ impl PreferencesWindow {
         on_settings_applied: impl Fn(&ThemeSettings) + 'static,
     ) -> Rc<Self> {
         let window = Window::builder()
-            .title(tr("Termin Preferences"))
+            .title(tr("Preferences"))
             .transient_for(parent)
             .default_width(920)
             .default_height(560)
@@ -155,7 +155,7 @@ impl PreferencesWindow {
     }
 
     pub fn present(self: &Rc<Self>) {
-        self.window.set_title(Some(&tr("Termin Preferences")));
+        self.window.set_title(Some(&tr("Preferences")));
         if self.stack.first_child().is_none() {
             self.rebuild_tabs();
         } else {
