@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::theme::config_path;
+use crate::config::theme::default_config_dir;
 use crate::pane::PaneKind;
 use crate::ui::state::TileId;
 use crate::ui::tree_ops::{TreeNode, WorkspaceTree};
@@ -108,23 +108,11 @@ pub struct PresetStore {
 }
 
 pub fn layout_file_path() -> PathBuf {
-    let cfg = config_path();
-    if let Some(parent) = cfg.parent() {
-        parent.join("layout.json")
-    } else {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".config/termin/layout.json")
-    }
+    default_config_dir().join("layout.json")
 }
 
 pub fn presets_file_path() -> PathBuf {
-    let cfg = config_path();
-    if let Some(parent) = cfg.parent() {
-        parent.join("presets.json")
-    } else {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".config/termin/presets.json")
-    }
+    default_config_dir().join("presets.json")
 }
 
 pub fn expand_tilde_path(raw: &str) -> Option<PathBuf> {
