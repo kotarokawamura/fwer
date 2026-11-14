@@ -469,7 +469,7 @@ impl TerminalPaneWidget {
     }
 
     pub fn grab_terminal_focus(&self) {
-        self.backend.borrow().widget().grab_focus();
+        self.backend.borrow().grab_focus();
     }
 
     pub fn finish_title_edit_if_active(&self) -> Option<String> {

@@ -8,9 +8,9 @@
 pub mod vt100_adapter;
 pub mod vte4_adapter;
 
-use std::path::{Path, PathBuf};
-
 use crate::config::theme::ThemeSettings;
+use gtk4::prelude::*;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RgbColor(pub u8, pub u8, pub u8);
@@ -111,6 +111,10 @@ pub trait TerminalBackend {
     /// Returns the GTK4 widget to attach inside the pane container.
     fn widget(&self) -> gtk4::Widget;
 
+    /// Grabs keyboard focus onto the underlying terminal widget.
+    fn grab_focus(&self) {
+        self.widget().grab_focus();
+    }
     /// Spawns a shell (or `startup_command` via `$SHELL -c`) in `working_dir`.
     fn spawn_shell(
         &mut self,

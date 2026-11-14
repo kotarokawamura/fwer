@@ -21,15 +21,53 @@ use gtk4::gio;
 use gtk4::glib;
 use gtk4::pango;
 use gtk4::prelude::*;
+use gtk4::{Adjustment, IMMulticontext, Label, Overlay, Widget};
 use vte4::prelude::*;
 
-use crate::config::theme::ThemeSettings;
+use crate::config::theme::{ThemeSettings, format_rgb_hex};
 use crate::session::resolve_pid_cwd;
-use crate::vte::vt100_adapter::SCROLLBACK_LEN;
+use crate::vte::vt100_adapter::{SCROLLBACK_LEN, char_display_width};
 use crate::vte::{ONE_DARK_PALETTE_16, RgbColor, TerminalBackend};
 
+#[derive(Clone)]
+struct PreeditStyle {
+    fg_rgb: RgbColor,
+    bg_rgb: RgbColor,
+    underline_rgb: RgbColor,
+    font_family: String,
+    font_size_pt: f64,
+    zoom_scale: f64,
+}
+
+impl Default for PreeditStyle {
+    fn default() -> Self {
+        Self {
+            fg_rgb: RgbColor::DEFAULT_FG,
+            bg_rgb: RgbColor::DEFAULT_BG,
+            underline_rgb: RgbColor(56, 189, 248),
+            font_family: "monospace".to_string(),
+            font_size_pt: 11.0,
+            zoom_scale: 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct PreeditState {
+    text: String,
+    cursor_pos: i32,
+    style: PreeditStyle,
+    last_im_rect: Option<gdk::Rectangle>,
+    markup_dirty: bool,
+    sync_scheduled: bool,
+}
+
 pub struct Vte4Adapter {
+    container: Overlay,
     terminal: vte4::Terminal,
+    preedit_label: Label,
+    preedit_state: Rc<RefCell<PreeditState>>,
+    im_context: IMMulticontext,
     zoom_scale: f64,
     read_only: Rc<Cell<bool>>,
     child_pid: Rc<Cell<Option<i32>>>,
@@ -57,6 +95,23 @@ impl Vte4Adapter {
         terminal.set_audible_bell(false);
         terminal.set_mouse_autohide(true);
 
+        let container = Overlay::new();
+        container.set_hexpand(true);
+        container.set_vexpand(true);
+        container.set_child(Some(&terminal));
+
+        // IME Preedit (未確定文字列) をカーソル位置に下線付きで描画するオーバーレイラベル
+        let preedit_label = Label::new(None);
+        preedit_label.set_halign(gtk4::Align::Start);
+        preedit_label.set_valign(gtk4::Align::Start);
+        preedit_label.set_single_line_mode(true);
+        preedit_label.set_can_target(false);
+        preedit_label.set_visible(false);
+        container.add_overlay(&preedit_label);
+        container.set_measure_overlay(&preedit_label, false);
+        container.set_clip_overlay(&preedit_label, true);
+
+        let preedit_state = Rc::new(RefCell::new(PreeditState::default()));
         let read_only = Rc::new(Cell::new(false));
         let child_pid = Rc::new(Cell::new(None));
         let child_alive = Rc::new(Cell::new(true));
@@ -67,6 +122,186 @@ impl Vte4Adapter {
             Rc::new(RefCell::new(None));
         let on_scroll_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize) + 'static>>>> =
             Rc::new(RefCell::new(None));
+
+        let im_context = IMMulticontext::new();
+        im_context.set_client_widget(Some(&terminal));
+        im_context.set_use_preedit(true);
+
+        // 1. フォーカス制御 & カーソル移動時の座標更新
+        {
+            let im_enter = im_context.clone();
+            let im_leave = im_context.clone();
+            let term_weak = terminal.downgrade();
+            let lbl_enter = preedit_label.clone();
+            let lbl_leave = preedit_label.clone();
+            let st_enter = Rc::clone(&preedit_state);
+            let st_leave = Rc::clone(&preedit_state);
+
+            let focus_ctrl = gtk4::EventControllerFocus::new();
+            focus_ctrl.connect_enter(move |_| {
+                if let Some(term) = term_weak.upgrade() {
+                    sync_preedit_and_cursor(
+                        &term,
+                        &im_enter,
+                        &lbl_enter,
+                        &mut st_enter.borrow_mut(),
+                    );
+                }
+                im_enter.focus_in();
+                let im_delayed = im_enter.clone();
+                let term_weak_delayed = term_weak.clone();
+                let lbl_delayed = lbl_enter.clone();
+                let st_delayed = Rc::clone(&st_enter);
+                glib::idle_add_local_once(move || {
+                    if let Some(term) = term_weak_delayed.upgrade() {
+                        sync_preedit_and_cursor(
+                            &term,
+                            &im_delayed,
+                            &lbl_delayed,
+                            &mut st_delayed.borrow_mut(),
+                        );
+                    }
+                    im_delayed.focus_in();
+                });
+            });
+            focus_ctrl.connect_leave(move |_| {
+                im_leave.focus_out();
+                let mut st = st_leave.borrow_mut();
+                st.text.clear();
+                st.cursor_pos = 0;
+                st.markup_dirty = false;
+                lbl_leave.set_visible(false);
+            });
+            terminal.add_controller(focus_ctrl);
+        }
+
+        // カーソル移動時と Preedit 更新時にオーバーレイ文字列と Fcitx 候補ウィンドウ位置を追従させる
+        {
+            let im_cursor = im_context.clone();
+            let lbl_cursor = preedit_label.clone();
+            let st_cursor = Rc::clone(&preedit_state);
+            terminal.connect_cursor_moved(move |term| {
+                schedule_preedit_and_cursor_sync(term, &im_cursor, &lbl_cursor, &st_cursor);
+            });
+
+            let term_weak = terminal.downgrade();
+            let lbl_preedit = preedit_label.clone();
+            let st_preedit = Rc::clone(&preedit_state);
+            im_context.connect_preedit_changed(move |im| {
+                let (gtext, _attrs, cursor_pos) = im.preedit_string();
+                let mut st = st_preedit.borrow_mut();
+                let new_text = gtext.to_string();
+                if st.text != new_text {
+                    st.text = new_text;
+                    st.markup_dirty = true;
+                }
+                st.cursor_pos = cursor_pos;
+                if let Some(term) = term_weak.upgrade() {
+                    sync_preedit_and_cursor(&term, im, &lbl_preedit, &mut st);
+                }
+            });
+
+            let term_weak_end = terminal.downgrade();
+            let lbl_end = preedit_label.clone();
+            let st_end = Rc::clone(&preedit_state);
+            im_context.connect_preedit_end(move |im| {
+                let mut st = st_end.borrow_mut();
+                st.text.clear();
+                st.cursor_pos = 0;
+                st.markup_dirty = false;
+                lbl_end.set_visible(false);
+                if let Some(term) = term_weak_end.upgrade() {
+                    sync_preedit_and_cursor(&term, im, &lbl_end, &mut st);
+                }
+            });
+        }
+
+        // 2. Directly send the character string committed with Fcitx to PTY
+        {
+            let term_weak = terminal.downgrade();
+            let is_feeding = Rc::clone(&is_feeding_child);
+            let ro_flag = Rc::clone(&read_only);
+            let cb_ref = Rc::clone(&on_user_input);
+            let lbl_commit = preedit_label.clone();
+            let st_commit = Rc::clone(&preedit_state);
+            im_context.connect_commit(move |_im, text| {
+                {
+                    let mut st = st_commit.borrow_mut();
+                    st.text.clear();
+                    st.cursor_pos = 0;
+                    st.markup_dirty = false;
+                }
+                lbl_commit.set_visible(false);
+
+                if ro_flag.get() || text.is_empty() {
+                    return;
+                }
+                if let Some(term) = term_weak.upgrade() {
+                    is_feeding.set(true);
+                    term.feed_child(text.as_bytes());
+                    is_feeding.set(false);
+                }
+                if let Some(ref cb) = *cb_ref.borrow() {
+                    cb(text.as_bytes());
+                }
+            });
+        }
+
+        // 3. Pass key Press/Release to Fcitx with top priority in Capture phase
+        {
+            let im_key_ctrl = gtk4::EventControllerKey::new();
+            im_key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+            let im_press = im_context.clone();
+            let ro_flag = Rc::clone(&read_only);
+            let lbl_press = preedit_label.clone();
+            let st_press = Rc::clone(&preedit_state);
+            im_key_ctrl.connect_key_pressed(move |ctrl, key, _keycode, mods| {
+                if ro_flag.get() {
+                    return glib::Propagation::Proceed;
+                }
+
+                let is_shortcut_mod = mods.contains(gdk::ModifierType::CONTROL_MASK)
+                    && mods.contains(gdk::ModifierType::SHIFT_MASK);
+                if is_shortcut_mod || mods.contains(gdk::ModifierType::SUPER_MASK) {
+                    return glib::Propagation::Proceed;
+                }
+
+                if let Some(event) = ctrl.current_event() {
+                    if let Some(widget) = ctrl.widget()
+                        && let Ok(term) = widget.downcast::<vte4::Terminal>()
+                    {
+                        sync_preedit_and_cursor(
+                            &term,
+                            &im_press,
+                            &lbl_press,
+                            &mut st_press.borrow_mut(),
+                        );
+                    }
+                    if im_press.filter_keypress(&event) {
+                        return glib::Propagation::Stop;
+                    }
+                }
+
+                if key == gdk::Key::Zenkaku_Hankaku
+                    || (mods.contains(gdk::ModifierType::ALT_MASK)
+                        && (key == gdk::Key::grave || key == gdk::Key::asciitilde))
+                {
+                    return glib::Propagation::Stop;
+                }
+
+                glib::Propagation::Proceed
+            });
+
+            let im_release = im_context.clone();
+            im_key_ctrl.connect_key_released(move |ctrl, _key, _keycode, _mods| {
+                if let Some(event) = ctrl.current_event() {
+                    let _ = im_release.filter_keypress(&event);
+                }
+            });
+
+            terminal.add_controller(im_key_ctrl);
+        }
 
         // Forward user input commits for broadcast group synchronization
         {
@@ -95,27 +330,48 @@ impl Vte4Adapter {
             });
         }
 
-        // Track scroll adjustment changes for the scroll offset badge
+        // Track scroll adjustment changes for the scroll offset badge & preedit position
         if let Some(adj) = terminal.vadjustment() {
+            let last_scroll = Rc::new(Cell::new(None::<(usize, usize)>));
+
             let cb_ref1 = Rc::clone(&on_scroll_changed);
+            let last_scroll1 = Rc::clone(&last_scroll);
+            let term_weak = terminal.downgrade();
+            let im_scroll = im_context.clone();
+            let lbl_scroll = preedit_label.clone();
+            let st_scroll = Rc::clone(&preedit_state);
             adj.connect_value_changed(move |a| {
-                let (offset, max_offset) = compute_adjustment_offsets(a);
-                if let Some(ref cb) = *cb_ref1.borrow() {
-                    cb(offset, max_offset);
+                let info = compute_adjustment_offsets(a);
+                if last_scroll1.get() != Some(info) {
+                    last_scroll1.set(Some(info));
+                    if let Some(ref cb) = *cb_ref1.borrow() {
+                        cb(info.0, info.1);
+                    }
+                }
+                if let Some(term) = term_weak.upgrade() {
+                    schedule_preedit_and_cursor_sync(&term, &im_scroll, &lbl_scroll, &st_scroll);
                 }
             });
 
             let cb_ref2 = Rc::clone(&on_scroll_changed);
+            let last_scroll2 = Rc::clone(&last_scroll);
             adj.connect_changed(move |a| {
-                let (offset, max_offset) = compute_adjustment_offsets(a);
-                if let Some(ref cb) = *cb_ref2.borrow() {
-                    cb(offset, max_offset);
+                let info = compute_adjustment_offsets(a);
+                if last_scroll2.get() != Some(info) {
+                    last_scroll2.set(Some(info));
+                    if let Some(ref cb) = *cb_ref2.borrow() {
+                        cb(info.0, info.1);
+                    }
                 }
             });
         }
 
         let mut adapter = Self {
+            container,
             terminal,
+            preedit_label,
+            preedit_state,
+            im_context,
             zoom_scale: 1.0,
             read_only,
             child_pid,
@@ -133,7 +389,7 @@ impl Vte4Adapter {
     }
 }
 
-fn compute_adjustment_offsets(adj: &gtk4::Adjustment) -> (usize, usize) {
+fn compute_adjustment_offsets(adj: &Adjustment) -> (usize, usize) {
     let lower = adj.lower();
     let upper = adj.upper();
     let page_size = adj.page_size();
@@ -142,6 +398,111 @@ fn compute_adjustment_offsets(adj: &gtk4::Adjustment) -> (usize, usize) {
     let max_scroll = (upper - page_size - lower).max(0.0).round() as usize;
     let current_offset_from_bottom = (upper - page_size - value).max(0.0).round() as usize;
     (current_offset_from_bottom.min(max_scroll), max_scroll)
+}
+
+/// カーソル移動やスクロール時の高頻度シグナルを 16ms（約60fps）単位に間引いて同期する
+fn schedule_preedit_and_cursor_sync(
+    term: &vte4::Terminal,
+    im: &IMMulticontext,
+    preedit_label: &Label,
+    state_rc: &Rc<RefCell<PreeditState>>,
+) {
+    {
+        let mut st = state_rc.borrow_mut();
+        if st.sync_scheduled {
+            return;
+        }
+        st.sync_scheduled = true;
+    }
+
+    let term_weak = term.downgrade();
+    let im_clone = im.clone();
+    let lbl_clone = preedit_label.clone();
+    let st_clone = Rc::clone(state_rc);
+
+    glib::timeout_add_local_once(std::time::Duration::from_millis(16), move || {
+        let mut st = st_clone.borrow_mut();
+        st.sync_scheduled = false;
+        if let Some(t) = term_weak.upgrade() {
+            sync_preedit_and_cursor(&t, &im_clone, &lbl_clone, &mut st);
+        }
+    });
+}
+
+fn sync_preedit_and_cursor(
+    term: &vte4::Terminal,
+    im: &IMMulticontext,
+    preedit_label: &Label,
+    state: &mut PreeditState,
+) {
+    let (col, abs_row) = term.cursor_position();
+    let scroll_top = term.vadjustment().map(|adj| adj.value()).unwrap_or(0.0);
+
+    let max_rows = term.row_count().max(1);
+    let max_cols = term.column_count().max(1);
+
+    let vis_row = ((abs_row as f64 - scroll_top).round() as libc::c_long)
+        .clamp(0, max_rows.saturating_sub(1));
+    let vis_col = col.clamp(0, max_cols.saturating_sub(1));
+
+    let cw = term.char_width().max(1) as i32;
+    let ch = term.char_height().max(1) as i32;
+
+    let base_x = (vis_col as i32) * cw;
+    let base_y = (vis_row as i32) * ch;
+
+    if state.text.is_empty() {
+        if preedit_label.is_visible() {
+            preedit_label.set_visible(false);
+        }
+        let rect = gdk::Rectangle::new(base_x, base_y, cw, ch);
+        if state.last_im_rect != Some(rect) {
+            state.last_im_rect = Some(rect);
+            im.set_cursor_location(&rect);
+        }
+        return;
+    }
+
+    if preedit_label.margin_start() != base_x {
+        preedit_label.set_margin_start(base_x);
+    }
+    if preedit_label.margin_top() != base_y {
+        preedit_label.set_margin_top(base_y);
+    }
+
+    if state.markup_dirty {
+        state.markup_dirty = false;
+        let st = &state.style;
+        let scaled_pt = (st.font_size_pt * st.zoom_scale).max(6.0);
+        let fg_hex = format_rgb_hex(st.fg_rgb);
+        let bg_hex = format_rgb_hex(st.bg_rgb);
+        let ul_hex = format_rgb_hex(st.underline_rgb);
+        let font_escaped = glib::markup_escape_text(&st.font_family);
+        let text_escaped = glib::markup_escape_text(&state.text);
+
+        let markup = format!(
+            "<span font_desc=\"{font_escaped} {scaled_pt:.1}\" foreground=\"{fg_hex}\" background=\"{bg_hex}\" underline=\"single\" underline_color=\"{ul_hex}\">{text_escaped}</span>"
+        );
+        preedit_label.set_markup(&markup);
+    }
+
+    if !preedit_label.is_visible() {
+        preedit_label.set_visible(true);
+    }
+
+    // 変換中のカーソル位置（文節位置）に合わせて候補ウィンドウの座標をオフセットする
+    let col_offset: i32 = state
+        .text
+        .chars()
+        .take(state.cursor_pos.max(0) as usize)
+        .map(|c| char_display_width(c) as i32)
+        .sum();
+    let im_x = (base_x + col_offset * cw).min((max_cols as i32 - 1).max(0) * cw);
+    let rect = gdk::Rectangle::new(im_x, base_y, cw, ch);
+    if state.last_im_rect != Some(rect) {
+        state.last_im_rect = Some(rect);
+        im.set_cursor_location(&rect);
+    }
 }
 
 fn rgb_to_gdk_rgba(rgb: RgbColor, alpha: f32) -> gdk::RGBA {
@@ -154,8 +515,12 @@ fn rgb_to_gdk_rgba(rgb: RgbColor, alpha: f32) -> gdk::RGBA {
 }
 
 impl TerminalBackend for Vte4Adapter {
-    fn widget(&self) -> gtk4::Widget {
-        self.terminal.clone().upcast::<gtk4::Widget>()
+    fn widget(&self) -> Widget {
+        self.container.clone().upcast::<Widget>()
+    }
+
+    fn grab_focus(&self) {
+        self.terminal.grab_focus();
     }
 
     fn spawn_shell(
@@ -186,11 +551,11 @@ impl TerminalBackend for Vte4Adapter {
             .map(|s| s.to_string());
 
         let mut argv_owned: Vec<String> = vec![shell];
-        if let Some(cmd) = startup_command {
-            if !cmd.trim().is_empty() {
-                argv_owned.push("-c".to_string());
-                argv_owned.push(cmd.to_string());
-            }
+        if let Some(cmd) = startup_command
+            && !cmd.trim().is_empty()
+        {
+            argv_owned.push("-c".to_string());
+            argv_owned.push(cmd.to_string());
         }
         let argv_refs: Vec<&str> = argv_owned.iter().map(|s| s.as_str()).collect();
 
@@ -315,7 +680,7 @@ impl TerminalBackend for Vte4Adapter {
         }
     }
 
-    fn vadjustment(&self) -> Option<gtk4::Adjustment> {
+    fn vadjustment(&self) -> Option<Adjustment> {
         self.terminal.vadjustment()
     }
 
@@ -380,12 +745,38 @@ impl TerminalBackend for Vte4Adapter {
             self.terminal.set_font(Some(&font_desc));
             self.terminal.set_font_scale(self.zoom_scale);
         }
+
+        {
+            let mut st = self.preedit_state.borrow_mut();
+            st.style.fg_rgb = RgbColor::DEFAULT_FG;
+            st.style.bg_rgb = bg_rgb;
+            st.style.underline_rgb = cursor_rgb;
+            st.style.font_family = family;
+            st.style.font_size_pt = (term_size as f64).max(6.0);
+            st.style.zoom_scale = self.zoom_scale;
+            st.markup_dirty = true;
+            sync_preedit_and_cursor(
+                &self.terminal,
+                &self.im_context,
+                &self.preedit_label,
+                &mut st,
+            );
+        }
     }
 
     fn set_zoom_scale(&mut self, scale: f64) {
         let clamped = scale.clamp(0.4, 3.5);
         self.zoom_scale = clamped;
         self.terminal.set_font_scale(clamped);
+        let mut st = self.preedit_state.borrow_mut();
+        st.style.zoom_scale = clamped;
+        st.markup_dirty = true;
+        sync_preedit_and_cursor(
+            &self.terminal,
+            &self.im_context,
+            &self.preedit_label,
+            &mut st,
+        );
     }
 
     fn zoom_scale(&self) -> f64 {
@@ -402,25 +793,21 @@ impl TerminalBackend for Vte4Adapter {
     }
 
     fn current_working_dir(&self) -> Option<PathBuf> {
-        // 1. Foreground process group leader of the PTY master fd
         if let Some(pty) = self.terminal.pty() {
             let raw_fd = pty.fd().as_raw_fd();
             let pgrp = unsafe { libc::tcgetpgrp(raw_fd) };
-            if pgrp > 0 {
-                if let Some(cwd) = resolve_pid_cwd(pgrp as u32) {
-                    return Some(cwd);
-                }
+            if pgrp > 0
+                && let Some(cwd) = resolve_pid_cwd(pgrp as u32)
+            {
+                return Some(cwd);
             }
         }
-        // 2. Direct child shell PID
-        if let Some(pid) = self.child_pid.get() {
-            if pid > 0 {
-                if let Some(cwd) = resolve_pid_cwd(pid as u32) {
-                    return Some(cwd);
-                }
-            }
+        if let Some(pid) = self.child_pid.get()
+            && pid > 0
+            && let Some(cwd) = resolve_pid_cwd(pid as u32)
+        {
+            return Some(cwd);
         }
-        // 3. Initial working directory fallback
         self.initial_cwd.clone()
     }
 
