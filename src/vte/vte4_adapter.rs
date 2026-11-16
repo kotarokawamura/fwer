@@ -124,7 +124,7 @@ impl Vte4Adapter {
             Rc::new(RefCell::new(None));
 
         let im_context = IMMulticontext::new();
-        im_context.set_client_widget(Some(&terminal));
+        im_context.set_client_widget(Some(&container));
         im_context.set_use_preedit(true);
 
         // 1. フォーカス制御 & カーソル移動時の座標更新
@@ -175,7 +175,7 @@ impl Vte4Adapter {
             terminal.add_controller(focus_ctrl);
         }
 
-        // カーソル移動時と Preedit 更新時にオーバーレイ文字列と Fcitx 候補ウィンドウ位置を追従させる
+        // Follow overlay string and Fcitx candidate window position when moving cursor and updating Preedit
         {
             let im_cursor = im_context.clone();
             let lbl_cursor = preedit_label.clone();
@@ -436,20 +436,42 @@ fn sync_preedit_and_cursor(
     state: &mut PreeditState,
 ) {
     let (col, abs_row) = term.cursor_position();
-    let scroll_top = term.vadjustment().map(|adj| adj.value()).unwrap_or(0.0);
-
-    let max_rows = term.row_count().max(1);
     let max_cols = term.column_count().max(1);
+    let max_rows = term.row_count().max(1) as i32;
 
-    let vis_row = ((abs_row as f64 - scroll_top).round() as libc::c_long)
-        .clamp(0, max_rows.saturating_sub(1));
+    let scroll_top = term.vadjustment().map(|adj| adj.value()).unwrap_or(0.0) as i32;
+    let upper = term.vadjustment().map(|adj| adj.upper()).unwrap_or(0.0);
+    let page_size = term.vadjustment().map(|adj| adj.page_size()).unwrap_or(0.0);
+
+    // Determining Alt Screen (full screen mode such as Vim or Emacs)
+    let is_alt_screen = scroll_top == 0 && (upper - page_size as f64).abs() < 1.0;
+
+    let vis_row = if is_alt_screen {
+        // ★Alt Screen（Vim / Emacs等）中：
+        let row_in_screen = if abs_row >= max_rows as i64 {
+            abs_row % max_rows as i64
+        } else {
+            abs_row
+        };
+
+        // ★Offset to correct the shift
+        // (apply -2 to offset the phenomenon of jumping from the 7th line to the 10th line)
+        let alt_offset = 2;
+        ((row_in_screen as i32) - alt_offset).clamp(0, max_rows - 1)
+    } else {
+        // ★通常シェル画面中（ここは完璧に動いているのでそのまま）
+        let relative_row = abs_row as i32 - scroll_top;
+        relative_row.clamp(0, max_rows - 1)
+    };
+
     let vis_col = col.clamp(0, max_cols.saturating_sub(1));
 
     let cw = term.char_width().max(1) as i32;
     let ch = term.char_height().max(1) as i32;
 
     let base_x = (vis_col as i32) * cw;
-    let base_y = (vis_row as i32) * ch;
+    let pixel_offset_y = 0;
+    let base_y = (vis_row * ch + pixel_offset_y).max(0);
 
     if state.text.is_empty() {
         if preedit_label.is_visible() {
@@ -490,7 +512,6 @@ fn sync_preedit_and_cursor(
         preedit_label.set_visible(true);
     }
 
-    // 変換中のカーソル位置（文節位置）に合わせて候補ウィンドウの座標をオフセットする
     let col_offset: i32 = state
         .text
         .chars()
@@ -499,10 +520,8 @@ fn sync_preedit_and_cursor(
         .sum();
     let im_x = (base_x + col_offset * cw).min((max_cols as i32 - 1).max(0) * cw);
     let rect = gdk::Rectangle::new(im_x, base_y, cw, ch);
-    if state.last_im_rect != Some(rect) {
-        state.last_im_rect = Some(rect);
-        im.set_cursor_location(&rect);
-    }
+    state.last_im_rect = Some(rect);
+    im.set_cursor_location(&rect);
 }
 
 fn rgb_to_gdk_rgba(rgb: RgbColor, alpha: f32) -> gdk::RGBA {
